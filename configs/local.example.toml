@@ -1,0 +1,22 @@
+# Copy to configs/local.toml (gitignored) and edit for your machine.
+#
+# Nothing in this file is committed except this example. Absolute paths,
+# machine names and account names must never appear in tracked files.
+#
+# Windows paths: use single-quoted TOML literal strings so backslashes stay
+# literal. Relative paths are resolved against the repository root.
+
+[paths]
+# Root that contains the per-day / per-sequence shot folders, i.e. the
+# directory holding "<YYYY-MM-DD>/<seq>/*.h5".
+experiment_data_root = 'Experiment-Data'
+
+# Checkout of the general lab analysis package (import name `rydlab`). This
+# repository reuses its image loading, ROI-sum, local-background and grid
+# helpers instead of duplicating them. Point this at your local clone; it is
+# used read-only.
+tweezer_analysis_src = '../mit-tweezer-array-analysis/src'
+
+# Where processed tables and reports are written.
+processed_root = 'data/processed'
+reports_root   = 'reports'

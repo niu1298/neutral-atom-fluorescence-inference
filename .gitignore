@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------- raw data
+# Raw experimental shots stay local. They are never committed.
+Experiment-Data/
+experiment-data/
+
+# ------------------------------------------------------- derived local data
+# Processed tables are reproducible from the raw shots; not committed until a
+# publication decision has been made explicitly.
+data/processed/
+data/interim/
+
+# QC reports contain unreduced experimental figures -> local only.
+reports/qc/
+reports/audit/
+
+# ------------------------------------------------------------ local machine
+# Real machine paths live here; only the .example file is committed.
+configs/local.toml
+configs/*.local.yaml
+
+# ---------------------------------------------------------------- artefacts
+assets/readme/frames/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+_scratch/
+logs/
+
+# ------------------------------------------------------------------- editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

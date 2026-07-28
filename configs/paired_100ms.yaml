@@ -1,0 +1,121 @@
+# V0 dataset definition: single-condition paired-readout fluorescence run.
+#
+# This file contains ONLY relative, machine-independent settings. Absolute
+# machine paths live in configs/local.toml (gitignored, see local.example.toml).
+#
+# Every value here participates in the config hash recorded in generated
+# metadata, so changing anything invalidates downstream provenance.
+
+dataset_id: paired_100ms_v0
+run_id: "20260727_0211"
+
+# ------------------------------------------------------------------- source
+source:
+  # Relative to `paths.experiment_data_root` in configs/local.toml.
+  shot_subdir: "2026-07-27/0211"
+  file_glob: "*.h5"
+  expected_n_shots: 100
+
+  # Verified by scripts/audit_source_data.py against the real files. The
+  # exporter refuses to run if any of these stop being true.
+  h5:
+    run_number_attr: "run number"
+    run_time_attr: "run time"
+    n_runs_attr: "n_runs"
+    sequence_index_attr: "sequence_index"
+    sequence_date_attr: "sequence_date"
+    script_basename_attr: "script_basename"
+    globals_group: "globals"
+    exposures_dataset: "devices/hamamatsu/EXPOSURES"
+
+  # frame_id -> h5 image dataset. Order is the verified temporal order.
+  frames:
+    - frame_id: 0
+      exposure_name: "fluor"
+      h5_path: "images/hamamatsu/fluor/atoms"
+    - frame_id: 1
+      exposure_name: "fluor2"
+      h5_path: "images/hamamatsu/fluor2/atoms"
+
+  # Nominal values cross-checked against per-shot metadata during export.
+  expected_exposure_s: 0.1
+  expected_interframe_start_delta_s: 0.11
+  camera_bit_depth: 16
+  saturation_adu: 65535
+
+# ------------------------------------------------------------- site finding
+# Site positions are derived from the shot-to-shot pixel VARIANCE map, not the
+# mean image: on this run the mean image is dominated by a static fringe
+# pattern, while occupancy fluctuation makes every loaded site stand out in
+# variance. See docs/DATA_AUDIT.md section "Site coordinates".
+sites:
+  method: variance_lattice
+  # Frames pooled into the variance map used for finding.
+  variance_frames: [0, 1]
+  highpass_sigma: 30.0
+  score_smooth_sigma: 0.8
+  clip_negative: true
+
+  # Array-region localisation (keeps hot pixels outside the array from
+  # seeding spurious clusters).
+  density_sigma: 12.0
+  density_percentile: 97.0
+  min_component_px: 200
+  region_pad_px: 25
+
+  # Peak detection inside the array region.
+  peak_neighborhood: 5
+  peak_percentile: 98.0
+
+  # Lattice model. n_grids separate sub-arrays, each ny x nx.
+  n_grids: 2
+  grid_names: ["grid_A", "grid_B"]
+  ny: 10
+  nx: 10
+  nn_vector_tol_lo: 0.6
+  nn_vector_tol_hi: 1.45
+  angle_bin_deg: 5.0
+  angle_tol_deg: 15.0
+  min_angle_between_basis_deg: 50.0
+  refine_iterations: 6
+  # A modelled site is called "detected" when a peak lies within this radius.
+  detection_radius_px: 3.0
+
+# ------------------------------------------------------------ ROI / counting
+roi:
+  # Half-width in pixels; box is (2*hw+1) square. Matches the lab convention.
+  trap_half_width: 2
+  local_bg_inner_half_width: 6
+  local_bg_outer_half_width: 16
+  local_bg_stat: median
+  camera_offset_counts_per_pixel: 0.0
+
+# ----------------------------------------------------------- background (C)
+# Common-mode reference measured on genuinely site-free pixels: everything
+# outside the array region dilated by `exclusion_pad_px`. Never a median over
+# the sites themselves (that would absorb occupancy changes into "background").
+global_background:
+  method: site_free_median
+  exclusion_pad_px: 40
+  min_reference_px: 50000
+
+# ------------------------------------------------------------ quality flags
+quality:
+  saturation_fraction_max: 0.0        # any saturated ROI pixel flags the row
+  roi_edge_margin_px: 2               # ROI must fit fully inside the frame
+  local_bg_min_pixels: 200
+
+# ------------------------------------------------------------- reporting/QC
+qc:
+  # Deterministic selection of example shots for overlay figures.
+  random_seed: 20260727
+  n_example_shots: 3
+  hist_bins: 80
+
+# -------------------------------------------------------------- README asset
+readme_assets:
+  random_seed: 20260727
+  gif_width_px: 1100
+  gif_fps: 10
+  scene_hold_frames: 12
+  transition_frames: 6

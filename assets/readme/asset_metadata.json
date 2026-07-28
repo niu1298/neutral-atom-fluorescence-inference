@@ -1,0 +1,165 @@
+{
+  "provenance": {
+    "git": {
+      "commit": null,
+      "dirty": null,
+      "branch": null
+    },
+    "config": {
+      "config_file": "paired_100ms.yaml",
+      "config_sha256": "75093c3ae884c752b9a5959adc4fe425d049c1c112d95af61b704b246efdf2aa",
+      "dataset_id": "paired_100ms_v0",
+      "run_id": "20260727_0211",
+      "paths": {
+        "experiment_data_root": "<configured:present>",
+        "tweezer_analysis_src": "<configured:present>",
+        "processed_root": "<configured:present>",
+        "reports_root": "<configured:present>"
+      }
+    },
+    "environment": {
+      "python": "3.11.9",
+      "platform": "win32",
+      "cpu_count": "12"
+    },
+    "inputs": {
+      "n_files": 100,
+      "total_bytes": 312536048,
+      "manifest_sha256": "4c3ac46aa9353bd8e8c4c0731af6e0df5655e8315c68d72327abba44952ee1e6"
+    }
+  },
+  "generated_by": "scripts/generate_readme_assets.py",
+  "command": "python scripts/generate_readme_assets.py --config configs/paired_100ms.yaml",
+  "random_seed": 20260727,
+  "dataset": {
+    "run_id": "20260727_0211",
+    "n_shots": 100,
+    "n_frames_per_shot": 2,
+    "n_sites": 200,
+    "n_site_frame_observations": 40000,
+    "n_site_shot_pairs": 20000,
+    "exposure_ms": 100.0,
+    "roi_pixels": 25
+  },
+  "selection": {
+    "shot_order": 50,
+    "shot_rule": "shot whose mean frame-0 raw ROI count is closest to the run median, excluding shot 0 (documented background outlier)",
+    "site_id": 175,
+    "site_rule": "unflagged site whose mean frame-0 background-corrected count is closest to the median across sites",
+    "site_grid": "grid_B",
+    "site_row": 7,
+    "site_col": 5
+  },
+  "storyboard": [
+    {
+      "index": 0,
+      "caption": "Two consecutive frames",
+      "transition_frames": 6,
+      "hold_frames": 10
+    },
+    {
+      "index": 1,
+      "caption": "Site ROIs",
+      "transition_frames": 6,
+      "hold_frames": 10
+    },
+    {
+      "index": 2,
+      "caption": "One site: signal and local background",
+      "transition_frames": 8,
+      "hold_frames": 10
+    },
+    {
+      "index": 3,
+      "caption": "Raw ROI counts",
+      "transition_frames": 6,
+      "hold_frames": 10
+    },
+    {
+      "index": 4,
+      "caption": "Background-corrected counts",
+      "transition_frames": 8,
+      "hold_frames": 10
+    },
+    {
+      "index": 5,
+      "caption": "Two-component description",
+      "transition_frames": 7,
+      "hold_frames": 12
+    },
+    {
+      "index": 6,
+      "caption": "Paired readout, frame 0 vs frame 1",
+      "transition_frames": 9,
+      "hold_frames": 12
+    },
+    {
+      "index": 7,
+      "caption": "What the pipeline produces",
+      "transition_frames": 4,
+      "hold_frames": 16
+    }
+  ],
+  "synthetic_panels": [],
+  "provisional_panels": [
+    "hero scene 6 (two-component description)",
+    "count_distribution_fit.png",
+    "reference levels drawn in the hero scene 7 and paired_frame_scatter.png"
+  ],
+  "claim_guard": [
+    "Reference levels come from a pooled two-component description fitted on all data. They are display references, not a validated decision rule.",
+    "Frame-to-frame disagreement is reported as disagreement. This run has no matched-empty, dark-frame or natural-loss control, so it cannot separate atom loss from misclassification.",
+    "No false-positive rate, false-negative rate, readout fidelity or imaging-loss rate is estimated anywhere in this report."
+  ],
+  "assets": {
+    "hero": {
+      "path": "assets/readme/fluorescence_inference_overview.gif",
+      "width_px": 1100,
+      "height_px": 660,
+      "n_frames": 144,
+      "fps": 10,
+      "duration_s": 14.4,
+      "loop": "infinite",
+      "bytes": 2244578,
+      "megabytes": 2.24,
+      "static_fallback": "assets/readme/fluorescence_inference_overview.png",
+      "static_fallback_frame": 111,
+      "static_fallback_scene": "Paired readout, frame 0 vs frame 1"
+    },
+    "static_figures": {
+      "paired_images_roi_overlay.png": {
+        "path": "assets/readme/paired_images_roi_overlay.png",
+        "bytes": 665208
+      },
+      "count_distribution_fit.png": {
+        "path": "assets/readme/count_distribution_fit.png",
+        "bytes": 181551
+      },
+      "paired_frame_scatter.png": {
+        "path": "assets/readme/paired_frame_scatter.png",
+        "bytes": 324305
+      },
+      "site_summary_map.png": {
+        "path": "assets/readme/site_summary_map.png",
+        "bytes": 137028
+      }
+    },
+    "metrics_fragment": "reports/readme_metrics.md",
+    "readme_blocks_injected": [
+      "dataset-line",
+      "results"
+    ]
+  },
+  "privacy": {
+    "images_cropped_to_site_array": true,
+    "crop_x0x1y0y1": [
+      205,
+      449,
+      150,
+      399
+    ],
+    "filenames_in_assets": false,
+    "absolute_paths_in_assets": false,
+    "run_identifier_in_visible_text": false
+  }
+}
