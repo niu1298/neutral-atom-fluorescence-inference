@@ -1,8 +1,8 @@
 {
   "provenance": {
     "git": {
-      "commit": "7885893fd4c6dfddf75e19d9e763ae3456a65586",
-      "dirty": true,
+      "commit": "f4f965ba8bd79d00012a3fcd1ef3f0975d5e0122",
+      "dirty": false,
       "branch": "main"
     },
     "config": {
@@ -113,20 +113,6 @@
     "No false-positive rate, false-negative rate, readout fidelity or imaging-loss rate is estimated anywhere in this report."
   ],
   "assets": {
-    "hero": {
-      "path": "assets/readme/fluorescence_inference_overview.gif",
-      "width_px": 1100,
-      "height_px": 660,
-      "n_frames": 144,
-      "fps": 10,
-      "duration_s": 14.4,
-      "loop": "infinite",
-      "bytes": 1988848,
-      "megabytes": 1.99,
-      "static_fallback": "assets/readme/fluorescence_inference_overview.png",
-      "static_fallback_frame": 111,
-      "static_fallback_scene": "Paired readout, frame 0 vs frame 1"
-    },
     "static_figures": {
       "paired_images_roi_overlay.png": {
         "path": "assets/readme/paired_images_roi_overlay.png",
