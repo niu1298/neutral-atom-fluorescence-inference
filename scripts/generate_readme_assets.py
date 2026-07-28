@@ -377,11 +377,22 @@ class SceneBuilder:
         return axes
 
     def scene_0(self, fig, t: float) -> None:
+        # both panels are fully drawn from the very first frame: a GIF whose
+        # opening frame is half empty reads as a broken figure wherever the
+        # animation is paused, previewed, or thumbnailed
         self._image_pair(fig, zoom=0.0, boxes_fraction=0.0, show_annulus=False,
-                         show_numbers=0.0, right_alpha=_ease(t))
+                         show_numbers=0.0, right_alpha=1.0)
+        a = _ease(t)
+        fig.patches.append(rp.plt.matplotlib.patches.FancyArrowPatch(
+            (0.472, 0.50), (0.472 + 0.046 * a, 0.50), transform=fig.transFigure,
+            arrowstyle="-|>", mutation_scale=18, lw=2.0, color=rp.ACCENT_2,
+            alpha=a, zorder=10))
+        fig.text(0.4955, 0.545, "+110 ms", fontsize=12.5, color=rp.ACCENT_2,
+                 fontweight="bold", ha="center", va="bottom", alpha=a)
         caption(fig,
-                "Two exposures of the same atoms, 110 ms apart. "
-                "Identical crop and identical intensity scale.")
+                "Two exposures of the same atoms: a 100 ms frame, a 10 ms gap "
+                "with the imaging light off, then a second 100 ms frame. "
+                "Identical crop, identical intensity scale.")
 
     def scene_1(self, fig, t: float) -> None:
         self._image_pair(fig, zoom=0.0, boxes_fraction=_ease(t),

@@ -1,9 +1,9 @@
 {
   "provenance": {
     "git": {
-      "commit": null,
-      "dirty": null,
-      "branch": null
+      "commit": "44fe19ea2c2bc9f9063a855cd70f641282047e0b",
+      "dirty": true,
+      "branch": "main"
     },
     "config": {
       "config_file": "paired_100ms.yaml",
@@ -120,8 +120,8 @@
       "fps": 10,
       "duration_s": 14.4,
       "loop": "infinite",
-      "bytes": 2244578,
-      "megabytes": 2.24,
+      "bytes": 1991792,
+      "megabytes": 1.99,
       "static_fallback": "assets/readme/fluorescence_inference_overview.png",
       "static_fallback_frame": 111,
       "static_fallback_scene": "Paired readout, frame 0 vs frame 1"
