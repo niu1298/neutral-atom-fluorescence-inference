@@ -49,14 +49,32 @@ def test_primary_key_is_unique(real_dataset):
     assert df.duplicated(subset=list(schema.PRIMARY_KEY)).sum() == 0
 
 
-def test_background_columns_are_self_consistent(real_dataset):
+def test_every_method_column_is_self_consistent(real_dataset):
+    """Each corrected column must equal raw minus its own background."""
     df, _, _ = real_dataset
-    np.testing.assert_allclose(
-        df["background_corrected_count"], df["roi_sum"] - df["local_background"],
-        rtol=0, atol=1e-9)
-    np.testing.assert_allclose(
-        df["common_mode_corrected_count"], df["roi_sum"] - df["global_background"],
-        rtol=0, atol=1e-9)
+    for method, (bg, ct) in schema.METHOD_COLUMNS.items():
+        if bg is None or bg not in df.columns:
+            continue
+        np.testing.assert_allclose(df[ct], df["roi_sum_raw"] - df[bg],
+                                   rtol=0, atol=1e-9, err_msg=method)
+
+
+def test_methods_are_distinct_not_copies(real_dataset):
+    """Separate columns are only meaningful if they hold separate estimates."""
+    df, _, _ = real_dataset
+    cols = [c for _, c in schema.METHOD_COLUMNS.values() if c in df.columns]
+    for i, a in enumerate(cols):
+        for b in cols[i + 1:]:
+            assert not np.allclose(df[a], df[b]), f"{a} and {b} are identical"
+
+
+def test_primary_alias_copies_the_configured_method(cfg, real_dataset):
+    df, _, meta = real_dataset
+    primary = meta["background"]["primary_method"]
+    _, col = schema.METHOD_COLUMNS[primary]
+    np.testing.assert_allclose(df["background_corrected_count"], df[col],
+                               rtol=0, atol=0)
+    assert primary not in schema.CONTAMINATED_METHODS
 
 
 def test_flagging_behaviour(real_dataset):

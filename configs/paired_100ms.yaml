@@ -50,6 +50,9 @@ source:
 # variance. See docs/DATA_AUDIT.md section "Site coordinates".
 sites:
   method: variance_lattice
+  # Bumped whenever anything below changes the site coordinates. Recorded in
+  # every generated artefact so a table can be traced to a geometry.
+  geometry_version: "20260727.g1"
   # Frames pooled into the variance map used for finding.
   variance_frames: [0, 1]
   highpass_sigma: 30.0
@@ -90,14 +93,41 @@ roi:
   local_bg_stat: median
   camera_offset_counts_per_pixel: 0.0
 
-# ----------------------------------------------------------- background (C)
-# Common-mode reference measured on genuinely site-free pixels: everything
-# outside the array region dilated by `exclusion_pad_px`. Never a median over
-# the sites themselves (that would absorb occupancy changes into "background").
-global_background:
-  method: site_free_median
-  exclusion_pad_px: 40
-  min_reference_px: 50000
+# ------------------------------------------------------------- backgrounds
+# Four methods, all stored, none overwriting another. See
+# src/fluorescence_inference/background_models.py and
+# reports/validation/background_method_comparison.json.
+background:
+  # Site exclusion. Must exceed the ROI half-width plus the point-spread tail.
+  # 5 px against a 5x5 ROI and a ~1.3 px PSF sigma leaves a 3 px margin, i.e.
+  # more than two sigma beyond the ROI edge.
+  mask_radius_px: 5.0
+  hot_pixel_sigma: 8.0
+
+  # Robust smooth spatial surface (method C, and the template fill for D).
+  # Total-degree 2D polynomial, Huber IRLS, fitted on a fixed stride through
+  # the site-free pixels so the result is bit-reproducible.
+  surface_degree: 4
+  max_fit_pixels: 80000
+  huber_k: 1.345
+  irls_iterations: 4
+
+  # Residual-structure diagnostic block size.
+  residual_block_px: 25
+
+  # Which corrected count downstream code treats as primary. Chosen in
+  # reports/validation/background_method_comparison.json on residual structure
+  # and stability, never on which one maximises separation.
+  primary_method: fixed_offset      # A=raw B=global C=spatial D=fixed_offset
+
+# Legacy annulus, retained as a diagnostic column only. At a 10-11 px site
+# pitch the 13-33 px annulus contains ~10 neighbouring sites and is
+# contaminated by array light; it is not a valid primary background.
+legacy_annulus:
+  enabled: true
+  inner_half_width: 6
+  outer_half_width: 16
+  stat: median
 
 # ------------------------------------------------------------ quality flags
 quality:

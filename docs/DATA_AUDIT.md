@@ -159,56 +159,106 @@ shows neither should be dropped:
 Both keep their modelled ROI and stay in the table with the flag set, so
 downstream work can exclude them deliberately rather than silently.
 
+### Independently validated in Round 1.5
+
+The 200-site geometry is a fit result, so it was tested rather than trusted.
+Full report: `reports/validation/site_geometry_validation.json`; method:
+[`VALIDATION.md`](VALIDATION.md).
+
+| Test | Result |
+|---|---|
+| Refit on shots 0–49 vs 50–99, optimally matched | median drift **0.080 px**, p90 0.117, p99 0.136, **max 0.149 px**, 0 unmatched of 200 |
+| Bulk translation between halves | 0.069 px in row, 0.021 px in column |
+| Array boundary sharpness | edge ring **38–64×** brighter than the first ring outside |
+| Larger fitting window | **+2.0%** peaks at most — the window is not clipping |
+| Two blocks = two images of one array? | **rejected**: index-matched correlation −0.003 against a permuted null of −0.001 |
+| ROI overlays across the run | 10 shots, evenly spaced |
+
+The boundary result is the informative one. Each block is exactly 10 × 10 with
+edge sites as bright as interior sites and the next lattice position at the
+noise floor. A larger lattice merely loaded in its middle would taper; this
+does not. So the 10 × 10 window is a property of the data, not of the
+configuration.
+
 ### Standing caveat
 
 Sites are localised from atom fluorescence. **A trap never loaded during these
-100 shots cannot be localised**, and an entire never-loaded sub-array would be
-invisible. The lattice model covers this for sites inside a fitted 10 × 10
-block; it cannot cover a block that was never seen. Occupancy fractions
-computed on these 200 sites are therefore conditional on the array geometry
-being exactly two 10 × 10 blocks, which is consistent with the data but not
-independently confirmed by a trap-light reference image.
+100 shots cannot be localised**, and an entire never-loaded block would be
+invisible. The validation above establishes that the site set is stable,
+unclipped, non-overlapping and non-duplicated. It does **not** establish that
+each site is a physically verified trap — that needs a trap-light reference
+image, which this run does not have. The phrase "200 valid traps" is therefore
+not used anywhere in this repository.
 
 ---
 
 ## 5. ROI and background extraction
 
-Reused from the general analysis package, with the same constants:
-
 | Setting | Value |
 |---|---|
 | ROI | 5 × 5 px box (`trap_half_width = 2`), 25 px per site |
-| Local background | annulus between half-widths 6 and 16, **median** |
+| Site exclusion mask | 5 px radius disk around every site, plus hot pixels |
+| Spatial surface | total-degree-4 polynomial, Huber IRLS, 80,000 fit pixels |
 | Camera offset | 0.0 counts/px (as frozen in the lab config) |
 
-`background.annulus_background` reproduces the lab's `local_background_for_box`
-numerically (asserted by `tests/test_reuse_matches_lab.py`) and additionally
-returns the annulus pixel count, which the quality flags need.
+**The local annulus was demoted in Round 1.5.** It is retained only as a
+diagnostic column, explicitly named `*_annulus_contaminated`.
 
-**Known limitation of the annulus at this site density.** With a 10–11 px site
-pitch, the 33 × 33 outer box contains roughly ten neighbouring sites. The
-median keeps the estimator from being dragged by them, but the annulus is not
-an atom-free region. Measured consequence: the mean annulus level is
-**591.6 counts/px in frame 0** against **521.7 counts/px** on genuinely
-site-free pixels of the same frames — a ~70 counts/px array-dependent excess.
-This is why all three measurement variants are carried through the table
-instead of one being picked here.
+With a 10–11 px site pitch the 13–33 px annulus contains roughly ten
+neighbouring sites. The median keeps it from being dragged by them, but the
+region is not atom-free, and the measured consequences are large:
+
+* the annulus reports a frame 1 − frame 0 shift of **−36.56 ± 9.94 counts/px**
+  against **−12.53 ± 1.48** from the site-masked estimator and **−13.77 ± 1.74**
+  from the whole-frame median — roughly three times too large, with seven times
+  the spread;
+* its "corrected" count still correlates with its own background across shots
+  at **|r| = 0.571**, against 0.15–0.22 for the site-masked estimators. A valid
+  correction decorrelates the two; this one does not, because it is subtracting
+  something that carries signal;
+* it gives the *worst* two-component separation of any method tested
+  (d′ = 2.76 / 3.17 against 2.97 / 3.41), so it is not even trading validity
+  for contrast.
+
+`background.annulus_background` still reproduces the lab's
+`local_background_for_box` numerically (asserted by
+`tests/test_reuse_matches_lab.py`); the problem is the estimator's geometry at
+this site density, not the implementation.
 
 ---
 
 ## 6. Measurement variants carried in the table
 
-| Variant | Column | Definition |
-|---|---|---|
-| A | `roi_sum` | raw sum over the ROI |
-| B | `background_corrected_count` | `roi_sum − local_background` (annulus) |
-| C | `common_mode_corrected_count` | `roi_sum − global_background` (site-free) |
+Four background methods, in separate columns, none overwriting another.
 
-Variant C is admissible here because the 600 × 700 frame is far larger than the
-array: after excluding the array region plus a 40 px margin, **119,180 pixels**
-remain with no site in them. The common mode is the median over those pixels of
-the *same* frame. A median over the sites was never used, because a change in
-the occupied fraction would then be absorbed into "background".
+| Variant | Corrected column | Definition |
+|---|---|---|
+| A | `roi_sum_raw` | no correction |
+| B | `count_corrected_global` | site-free median of the same frame |
+| C | `count_corrected_spatial` | robust degree-4 surface refitted per frame |
+| **D** | `count_corrected_fixed_offset` | **primary** — fixed spatial template + per-frame common-mode offset |
+| — | `count_corrected_annulus_contaminated` | diagnostic only, do not use |
+
+All of B, C and D estimate the background from pixels outside a 5 px exclusion
+disk around every site. A median over the sites is never used anywhere: a
+change in the occupied fraction would then be absorbed into "background" and
+make occupancy partly unobservable.
+
+**D was selected on residual structure, not on separation.** It leaves
+8.74 counts/px of block-median structure on site-free pixels, against
+15.03 for C and 40.97 for B — a background model that leaves the fringe pattern
+behind is wrong however flattering its histogram. Ranking on d′ was explicitly
+rejected as a criterion because it rewards subtracting less, and would select
+"no correction". Full comparison:
+`reports/validation/background_method_comparison.json`.
+
+**Honest limitation of C and D.** A 5 px exclusion radius at a 10–11 px pitch
+masks about 74% of each array block, so both methods partly *interpolate* the
+background underneath the array from surrounding site-free pixels. The
+interpolation is smooth by construction and cannot represent structure finer
+than the mask spacing. Enough unmasked pixels survive between sites
+(**404,259 of 420,000 across the frame**) that the fit is well constrained
+outside the blocks.
 
 ---
 

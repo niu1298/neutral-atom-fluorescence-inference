@@ -22,24 +22,28 @@
 
 | quantity | value |
 |---|---|
-| Frame 1 minus frame 0, site-free reference | -9.34 ± 1.40 counts/px |
-| Frame 1 minus frame 0, local annulus | -36.56 ± 9.94 counts/px |
-| Local annulus level, frame 0 | 591.6 counts/px |
-| Site-free level, frame 0 | 521.7 counts/px |
+| Frame 1 minus frame 0, template + offset (primary) | -12.53 ± 1.48 counts/px |
+| Frame 1 minus frame 0, global site-free median | -12.92 ± 1.69 counts/px |
+| Frame 1 minus frame 0, legacy annulus (contaminated) | -36.56 ± 9.94 counts/px |
+| Background level under a ROI, frame 0 (primary) | 550.9 counts/px |
+| Legacy annulus level, frame 0 | 591.6 counts/px |
 
-The annulus shift is about four times the site-free shift. The annulus is not
-an atom-free region at a 10–11 px site pitch, so part of what it calls
-"background" is array light that itself changes between the frames.
+The two site-masked estimators agree with each other to 0.4 counts/px and with
+the whole-frame median shift. The legacy annulus reports a shift about three
+times larger, with seven times the spread: at a 10–11 px site pitch its 13–33 px
+ring contains roughly ten neighbouring sites, so part of what it calls
+"background" is array light that itself changes between the frames. It is kept
+as a diagnostic column and is not used for inference.
 
 ### Paired-readout agreement
 
 | quantity | value |
 |---|---|
-| Paired-readout agreement | 91.77% (95% shot-cluster bootstrap 91.40–92.14%) |
-| Apparent bright-to-dark | 11.52% |
-| Apparent dark-to-bright | 3.75% |
-| Above reference, frame 0 | 57.62% |
-| Above reference, frame 1 | 52.57% |
+| Paired-readout agreement | 91.98% (95% shot-cluster bootstrap 91.59–92.38%) |
+| Apparent bright-to-dark | 11.98% |
+| Apparent dark-to-bright | 3.49% |
+| Above reference, frame 0 | 53.39% |
+| Above reference, frame 1 | 48.63% |
 
 Agreement is computed against per-frame descriptive reference levels.
 "Apparent" is meant literally: this run has no matched-empty, dark-frame or
@@ -50,12 +54,14 @@ than to misclassification.
 
 | variant | definition | frame | d' | model-implied overlap | drift / 100 shots |
 |---|---|---|---|---|---|
-| A | raw ROI sum | 0 | 2.80 | 8.3% | +190 |
-| A | raw ROI sum | 1 | 3.29 | 5.1% | +64 |
-| B | ROI sum - local background | 0 | 2.76 | 8.9% | +70 |
-| B | ROI sum - local background | 1 | 3.17 | 5.8% | +31 |
-| C | ROI sum - site-free common mode | 0 | 2.81 | 8.2% | +120 |
-| C | ROI sum - site-free common mode | 1 | 3.29 | 5.0% | +5 |
+| A | no correction | 0 | 2.80 | 8.3% | +190 |
+| A | no correction | 1 | 3.29 | 5.1% | +64 |
+| B | site-free median | 0 | 2.81 | 8.2% | +115 |
+| B | site-free median | 1 | 3.29 | 5.0% | +21 |
+| C | spatial surface | 0 | 2.98 | 7.0% | +117 |
+| C | spatial surface | 1 | 3.42 | 4.4% | +47 |
+| D | template + offset | 0 | 2.97 | 7.1% | +127 |
+| D | template + offset | 1 | 3.41 | 4.4% | +19 |
 
 `d'` and the overlap describe the descriptive two-component fit. They are
 **not** a readout fidelity, a false-positive rate or a false-negative rate.
@@ -63,5 +69,5 @@ than to misclassification.
 ### Representative example used in the README assets
 
 - **Shot:** shot whose mean frame-0 raw ROI count is closest to the run median, excluding shot 0 (documented background outlier) → shot order 50.
-- **Site:** unflagged site whose mean frame-0 background-corrected count is closest to the median across sites → site 175
-  (grid_B, row 7, column 5).
+- **Site:** unflagged site whose mean frame-0 background-corrected count is closest to the median across sites → site 160
+  (grid_B, row 6, column 0).

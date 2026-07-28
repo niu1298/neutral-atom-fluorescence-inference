@@ -23,16 +23,20 @@ from .config import Config
 from .descriptive_fit import DescriptiveFit, fit_descriptive, load_em_fit
 from .provenance import stamp
 
-#: the three measurement variants carried through the table
+#: the four background methods carried through the table, in report order.
+#: The contaminated annulus is deliberately absent: it is a diagnostic column,
+#: not a candidate correction.
 VARIANTS = {
-    "A_raw_roi_sum": "roi_sum",
-    "B_local_background_corrected": "background_corrected_count",
-    "C_common_mode_corrected": "common_mode_corrected_count",
+    "A_raw": "roi_sum_raw",
+    "B_global": "count_corrected_global",
+    "C_spatial": "count_corrected_spatial",
+    "D_fixed_offset": "count_corrected_fixed_offset",
 }
 VARIANT_LABEL = {
-    "A_raw_roi_sum": "A  raw ROI sum",
-    "B_local_background_corrected": "B  ROI sum - local background",
-    "C_common_mode_corrected": "C  ROI sum - site-free common mode",
+    "A_raw": "A  no correction",
+    "B_global": "B  site-free median",
+    "C_spatial": "C  spatial surface",
+    "D_fixed_offset": "D  template + offset",
 }
 
 
@@ -103,8 +107,8 @@ def descriptive_fits(cfg: Config, df: pd.DataFrame, value_col: str
             for fid, g in clean.groupby("frame_id", observed=True)}
 
 
-def site_table(df: pd.DataFrame, sites_df: pd.DataFrame, value_col: str
-               ) -> pd.DataFrame:
+def site_table(df: pd.DataFrame, sites_df: pd.DataFrame, value_col: str,
+               background_col: str = "background_fixed_offset") -> pd.DataFrame:
     """Per-site, per-frame descriptive statistics joined onto site geometry."""
     g = df.groupby(["site_id", "frame_id"], observed=True)
     stats = g.agg(
@@ -112,11 +116,12 @@ def site_table(df: pd.DataFrame, sites_df: pd.DataFrame, value_col: str
         std=(value_col, "std"),
         p10=(value_col, lambda s: float(np.percentile(s, 10))),
         p90=(value_col, lambda s: float(np.percentile(s, 90))),
-        local_background=("local_background", "mean"),
+        background=(background_col, "mean"),
         n_obs=(value_col, "size"),
         n_flagged=("quality_flag", lambda s: int((s.astype(str) != "ok").sum())),
     ).reset_index()
     stats["interdecile_spread"] = stats["p90"] - stats["p10"]
+    stats = stats.rename(columns={"background": "local_background"})
     return stats.merge(sites_df, on="site_id", how="left")
 
 
@@ -191,7 +196,7 @@ def fig_count_histograms(cfg: Config, df: pd.DataFrame,
         ax.set_title(VARIANT_LABEL[key])
         ax.set_xlabel("counts")
         ax.set_yscale("log")
-        if key == "A_raw_roi_sum":
+        if key == "A_raw":
             ax.set_ylabel("site-frame observations")
             ax.legend()
     fig.suptitle("Measurement variants: pooled site-frame count distributions")
@@ -226,9 +231,9 @@ def fig_paired_scatter(cfg: Config, pairs: pd.DataFrame, refs: tuple[float, floa
 def fig_background_drift(cfg: Config, df: pd.DataFrame, ctx: dict[str, Any],
                          out: Path) -> Path:
     per = (df.groupby(["shot_order", "frame_id"], observed=True)
-             .agg(global_bg=("global_background", "mean"),
-                  local_bg=("local_background", "mean"),
-                  roi_sum=("roi_sum", "mean")).reset_index())
+             .agg(global_bg=("background_global", "mean"),
+                  local_bg=("background_fixed_offset", "mean"),
+                  roi_sum=("roi_sum_raw", "mean")).reset_index())
     n_px = int(df["roi_n_pixels"].mode().iat[0])
 
     fig, axes = rp.plt.subplots(1, 3, figsize=(15.5, 4.4), layout="constrained")
@@ -239,7 +244,7 @@ def fig_background_drift(cfg: Config, df: pd.DataFrame, ctx: dict[str, Any],
         axes[1].plot(g["shot_order"], g["local_bg"] / n_px, ".-", ms=3.5, lw=0.9,
                      color=c, label=f"frame {int(fid)}")
     axes[0].set_title("Site-free common-mode level")
-    axes[1].set_title("Mean local (annulus) background")
+    axes[1].set_title("Mean template + offset background")
     for ax in axes[:2]:
         ax.set_xlabel("shot order")
         ax.set_ylabel("camera counts / pixel")
@@ -266,15 +271,15 @@ def fig_local_background_by_frame(df: pd.DataFrame, out: Path) -> Path:
     n_px = int(df["roi_n_pixels"].mode().iat[0])
     fig, axes = rp.plt.subplots(1, 2, figsize=(11.4, 4.4), layout="constrained")
     for fid, g in df.groupby("frame_id", observed=True):
-        axes[0].hist(g["local_background"] / n_px, bins=90, histtype="step",
+        axes[0].hist(g["background_fixed_offset"] / n_px, bins=90, histtype="step",
                      lw=1.7, color=rp.FRAME_COLORS[int(fid)], label=f"frame {int(fid)}")
-    axes[0].set_xlabel("local background (counts / pixel)")
+    axes[0].set_xlabel("per-site background (counts / pixel)")
     axes[0].set_ylabel("site-frame observations")
-    axes[0].set_title("Local background by frame")
+    axes[0].set_title("Per-site background by frame")
     axes[0].legend()
 
     w = df.pivot_table(index=["shot_id", "site_id"], columns="frame_id",
-                       values="local_background", observed=True)
+                       values="background_fixed_offset", observed=True)
     if {0, 1} <= set(w.columns):
         d = (w[1] - w[0]) / n_px
         axes[1].hist(d, bins=90, histtype="stepfilled", color=rp.WARN, alpha=0.35)
@@ -296,7 +301,7 @@ def fig_site_maps(sites_stats: pd.DataFrame, out: Path) -> Path:
     panels = [
         ("mean", "mean background-corrected count", rp.SEQ_CMAP),
         ("std", "shot-to-shot std (counts)", "viridis"),
-        ("local_background", "mean local background (counts)", "cividis"),
+        ("local_background", "mean background under the ROI (counts)", "cividis"),
         ("interdecile_spread", "P90 - P10 (counts)", "magma"),
     ]
     fig, axes = rp.plt.subplots(1, 4, figsize=(21.0, 5.0), layout="constrained")
@@ -366,10 +371,10 @@ def fig_outliers(df: pd.DataFrame, out: Path) -> Path:
     axes[0].set_title("Headroom to the 16-bit ceiling")
     axes[0].legend()
 
-    per_shot = (df.groupby(["shot_order", "frame_id"], observed=True)["roi_sum"]
+    per_shot = (df.groupby(["shot_order", "frame_id"], observed=True)["roi_sum_raw"]
                   .mean().reset_index())
     for fid, g in per_shot.groupby("frame_id", observed=True):
-        axes[1].plot(g["shot_order"], g["roi_sum"], ".-", ms=3.5, lw=0.9,
+        axes[1].plot(g["shot_order"], g["roi_sum_raw"], ".-", ms=3.5, lw=0.9,
                      color=rp.FRAME_COLORS[int(fid)], label=f"frame {int(fid)}")
     axes[1].set_xlabel("shot order")
     axes[1].set_ylabel("mean raw ROI sum (counts)")
@@ -381,6 +386,16 @@ def fig_outliers(df: pd.DataFrame, out: Path) -> Path:
 
 
 # ---------------------------------------------------------------- the driver
+def _primary_variant(cfg: Config) -> str:
+    """The VARIANTS key matching the configured primary background method."""
+    _, col = __import__("fluorescence_inference.schema", fromlist=["x"]).METHOD_COLUMNS[
+        str(cfg["background"]["primary_method"])]
+    for key, c in VARIANTS.items():
+        if c == col:
+            return key
+    raise ValueError(f"primary method column {col!r} is not a reported variant")
+
+
 def run_quality_control(cfg: Config, df: pd.DataFrame, sites_df: pd.DataFrame,
                         ctx: dict[str, Any]) -> dict[str, Any]:
     """Produce every QC figure and the machine-readable summary."""
@@ -392,7 +407,7 @@ def run_quality_control(cfg: Config, df: pd.DataFrame, sites_df: pd.DataFrame,
     fits: dict[str, dict[int, DescriptiveFit]] = {
         key: descriptive_fits(cfg, df, col) for key, col in VARIANTS.items()
     }
-    primary = "B_local_background_corrected"
+    primary = _primary_variant(cfg)
     refs = (fits[primary][0].reference_level, fits[primary][1].reference_level)
 
     pairs = paired_table(df, VARIANTS[primary])
@@ -534,7 +549,9 @@ def _variant_block(df: pd.DataFrame, col: str,
 def _background_block(df: pd.DataFrame) -> dict[str, Any]:
     n_px = int(df["roi_n_pixels"].mode().iat[0])
     out: dict[str, Any] = {"roi_pixels": n_px}
-    for name, col in (("local", "local_background"), ("common_mode", "global_background")):
+    for name, col in (("template_plus_offset", "background_fixed_offset"),
+                      ("global_site_free", "background_global"),
+                      ("annulus_contaminated", "background_annulus_contaminated")):
         w = df.pivot_table(index=["shot_id", "site_id"], columns="frame_id",
                            values=col, observed=True)
         block = {f"frame{int(c)}_mean_per_px": float(w[c].mean() / n_px)

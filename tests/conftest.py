@@ -26,6 +26,23 @@ def repo_root() -> Path:
     return ROOT
 
 
+@pytest.fixture
+def scratch(request) -> Path:
+    """A writable temp directory inside the repo.
+
+    pytest's own tmp root is not writable in every environment this runs in,
+    and a test that skips because of that is a test that never runs.
+    """
+    import shutil
+
+    d = ROOT / "_scratch" / "tests" / request.node.name.replace("/", "_")
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, exist_ok=True)
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
 @pytest.fixture(scope="session")
 def cfg():
     from fluorescence_inference.config import load_config

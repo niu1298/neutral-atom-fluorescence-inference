@@ -1,4 +1,11 @@
-# Data contract
+# Data contract — schema **2.0**
+
+| Version | Change |
+|---|---|
+| 1.0 | first standardized table; the local annulus was the primary background |
+| **2.0** | annulus demoted to a diagnostic; four background methods in separate columns; `roi_sum` renamed `roi_sum_raw`; `schema_version` and `geometry_version` recorded in the metadata sidecar |
+
+`schema.migrate_v1_to_v2` renames a v1 table into v2 names. It fills nothing in: a migrated table is explicitly missing the spatial and template methods, and the old primary maps onto `count_corrected_annulus_contaminated` rather than being silently promoted.
 
 The boundary between the two repositories, and the exact table that crosses it.
 
@@ -66,10 +73,11 @@ complete `frames × sites` block. A partial shot is an error, not a warning.
 | `exposure_ms` | Float64 | yes | exposure of *this* frame |
 | `frame_elapsed_s` | Float64 | yes | exposure start, seconds from sequence t=0 |
 | `site_x`, `site_y` | Float64 | no | site centre in full-frame pixels |
-| `roi_sum` | Float64 | yes | **variant A** |
-| `local_background` | Float64 | yes | annulus median × ROI pixel count |
-| `global_background` | Float64 | yes | site-free median × ROI pixel count |
-| `background_corrected_count` | Float64 | yes | **variant B**, the primary measurement |
+| `roi_sum_raw` | Float64 | yes | **method A** — no correction |
+| `background_global` | Float64 | yes | **B** reference: site-free median × ROI pixels |
+| `count_corrected_global` | Float64 | yes | **B** corrected count |
+| `background_spatial` | Float64 | yes | **C** reference: robust surface over the ROI |
+| `count_corrected_spatial` | Float64 | yes | **C** corrected count |
 | `raw_image_path` | string | yes | **file name only**, never a path |
 | `quality_flag` | string | no | `ok`, or `|`-joined flags |
 
@@ -77,12 +85,23 @@ complete `frames × sites` block. A partial shot is an error, not a warning.
 
 | Column | Meaning |
 |---|---|
+| `background_fixed_offset` | **D** reference: fixed template + per-frame offset |
+| `count_corrected_fixed_offset` | **D** corrected count — the current primary |
+| `background_corrected_count` | alias of the primary method's corrected count; which one is recorded in the metadata under `background.primary_method`, never a fifth estimate |
+| `background_annulus_contaminated` | **diagnostic only** |
+| `count_corrected_annulus_contaminated` | **diagnostic only, not valid for inference** |
+| `background_annulus_density_contaminated` | **diagnostic only**, per pixel |
 | `grid`, `site_row`, `site_col` | sub-array identity and lattice index |
-| `roi_n_pixels` | pixels summed for `roi_sum` |
-| `local_background_density` | annulus statistic per pixel |
+| `roi_n_pixels` | pixels summed for `roi_sum_raw` |
 | `roi_max_pixel` | brightest ROI pixel, for the saturation check |
-| `common_mode_corrected_count` | **variant C** |
 | `site_detected` | a variance peak lies within the detection radius |
+
+Every method keeps its own pair of columns. Nothing overwrites anything, so
+changing the primary method is a configuration edit plus a rebuild, not a
+re-derivation, and an analysis can always see what the alternatives would have
+given. `tests/test_background_models.py` asserts the columns stay distinct and
+`tests/test_dataset.py` asserts each corrected column equals raw minus its own
+background.
 
 ---
 
@@ -121,7 +140,8 @@ the shot file did not contain it.
    `source.expected_*` and recorded in the metadata sidecar.
 4. Schema validation runs on every export; failure is a non-zero exit code.
 5. Provenance — git commit, dirty flag, config SHA-256, input manifest hash,
-   Python version — is written into the metadata sidecar.
+   Python version, **schema version, geometry version, background method and
+   mask parameters** — is written into the metadata sidecar.
 6. Nothing machine-identifying is written into any artefact: paths appear only
    as `<configured:present>` / `<configured:missing>`.
 

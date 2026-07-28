@@ -21,8 +21,9 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from . import background_models as bm
 from . import schema
-from .background import SiteFreeReference, annulus_background, site_free_mask
+from .background import annulus_background
 from .config import Config, ensure_rydlab_importable
 from .sites import SiteMap, build_site_map, variance_map
 
@@ -221,14 +222,20 @@ def build_frame_site_table(cfg: Config, *, progress: bool = True
         kmeans_2d=kmeans_2d,
     )
 
-    gb_cfg = cfg["global_background"]
-    reference = site_free_mask(
-        var_img.shape, site_map.array_roi,
-        exclusion_pad_px=int(gb_cfg["exclusion_pad_px"]),
-        min_reference_px=int(gb_cfg["min_reference_px"]),
+    bg_cfg = cfg["background"]
+    mask = bm.build_site_mask(
+        var_img.shape, site_map.centers_yx,
+        radius_px=float(bg_cfg["mask_radius_px"]),
+        reference_image=mean_img,
+        hot_pixel_sigma=float(bg_cfg["hot_pixel_sigma"]),
+    )
+    template = bm.build_fixed_template(
+        mean_img, mask, degree=int(bg_cfg["surface_degree"]),
+        max_fit_pixels=int(bg_cfg["max_fit_pixels"]),
     )
 
-    rows = _extract_rows(cfg, metas, site_map, reference, load, progress=progress)
+    rows, frame_diag = _extract_rows(cfg, metas, site_map, mask, template, load,
+                                     progress=progress)
     df = schema.coerce(pd.DataFrame(rows))
 
     sites_df = pd.DataFrame({
@@ -247,36 +254,63 @@ def build_frame_site_table(cfg: Config, *, progress: bool = True
     })
 
     meta: dict[str, Any] = {
+        "schema_version": schema.SCHEMA_VERSION,
+        "geometry_version": cfg["sites"].get("geometry_version", "unversioned"),
         "loader": loader_name,
         "n_shots": len(shots),
         "n_frames_per_shot": cfg.n_frames,
         "frame_shape": list(var_img.shape),
         "variance_frames_used": int(n_var),
         "sites": site_map.summary(),
-        "site_free_reference_px": reference.n_pixels,
+        "background": {
+            "primary_method": str(bg_cfg["primary_method"]),
+            "methods": {k: {"background_column": b, "corrected_column": c}
+                        for k, (b, c) in schema.METHOD_COLUMNS.items()},
+            "mask": mask.summary(),
+            "surface_degree": int(bg_cfg["surface_degree"]),
+            "max_fit_pixels": int(bg_cfg["max_fit_pixels"]),
+            "huber_k": float(bg_cfg["huber_k"]),
+            "irls_iterations": int(bg_cfg["irls_iterations"]),
+            "template_fit": template.fit_info,
+            "annulus_is_diagnostic_only": True,
+        },
         "shot_metadata": _metadata_consistency(cfg, metas),
         "whole_frame_diagnostics": _frame_diagnostics(diag),
+        "frame_background_diagnostics": frame_diag,
     }
     return df, sites_df, {"meta": meta, "mean_image": mean_img,
                           "variance_image": var_img, "site_map": site_map,
-                          "reference": reference, "shots": shots, "metas": metas}
+                          "mask": mask, "template": template,
+                          "shots": shots, "metas": metas}
 
 
 def _extract_rows(cfg: Config, metas: list[ShotMeta], site_map: SiteMap,
-                  reference: SiteFreeReference, load, *, progress: bool
-                  ) -> list[dict[str, Any]]:
+                  mask: bm.SiteMask, template: bm.FixedTemplate, load, *,
+                  progress: bool) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows plus one per-frame background diagnostic record.
+
+    All four background methods are evaluated for every ROI. None overwrites
+    another: the method actually used downstream is a configuration choice made
+    on the evidence in ``reports/validation/background_method_comparison.json``,
+    and can be revisited without re-reading a single image.
+    """
     roi_cfg = cfg["roi"]
     q_cfg = cfg["quality"]
     src = cfg["source"]
+    bg_cfg = cfg["background"]
+    ann_cfg = cfg.get("legacy_annulus", {}) or {}
+
     offset = float(roi_cfg["camera_offset_counts_per_pixel"])
-    inner = int(roi_cfg["local_bg_inner_half_width"])
-    outer = int(roi_cfg["local_bg_outer_half_width"])
-    stat = str(roi_cfg["local_bg_stat"])
     saturation = float(src["saturation_adu"])
     edge_margin = int(q_cfg["roi_edge_margin_px"])
     min_bg_px = int(q_cfg["local_bg_min_pixels"])
     hw = int(roi_cfg["trap_half_width"])
     full_box_px = (2 * hw + 1) ** 2
+    degree = int(bg_cfg["surface_degree"])
+    max_fit = int(bg_cfg["max_fit_pixels"])
+    block = int(bg_cfg["residual_block_px"])
+    primary = str(bg_cfg["primary_method"])
+    _, primary_col = schema.METHOD_COLUMNS[primary]
     frames_cfg = {int(s["frame_id"]): s["h5_path"] for s in cfg.frame_specs}
 
     iterator: Iterable[ShotMeta] = metas
@@ -289,29 +323,73 @@ def _extract_rows(cfg: Config, metas: list[ShotMeta], site_map: SiteMap,
             pass
 
     rows: list[dict[str, Any]] = []
+    frame_diag: list[dict[str, Any]] = []
     for m in iterator:
         for fid, h5_path in frames_cfg.items():
             raw = load(m.path, h5_path)
             img = raw.astype(float) - offset
-            gb_density = reference.level(img)
+
+            bg = bm.evaluate_frame(img, mask, template, degree=degree,
+                                   max_fit_pixels=max_fit)
+            b_global = bm.roi_sums(np.full(img.shape, bg.global_level), site_map.boxes)
+            b_spatial = bm.roi_sums(bg.spatial, site_map.boxes)
+            b_fixed = bm.roi_sums(bg.fixed_offset, site_map.boxes)
+
+            frame_diag.append({
+                "shot_order": m.shot_order, "frame_id": fid,
+                "global_level_per_px": bg.global_level,
+                "fixed_offset_per_px": bg.offset,
+                "residual_rms_global": bg.residual_rms_global,
+                "residual_rms_spatial": bg.residual_rms_spatial,
+                "residual_rms_fixed": bg.residual_rms_fixed,
+                "spatial_fit_residual_rms": bg.spatial_fit["residual_rms"],
+                "structure_global": bm.residual_spatial_structure(
+                    img, bg.global_level, mask, block=block),
+                "structure_spatial": bm.residual_spatial_structure(
+                    img, bg.spatial, mask, block=block),
+                "structure_fixed": bm.residual_spatial_structure(
+                    img, bg.fixed_offset, mask, block=block),
+            })
+
             for k, box in enumerate(site_map.boxes):
                 y0, y1, x0, x1 = box
                 patch = raw[y0:y1, x0:x1]
                 n_px = int((y1 - y0) * (x1 - x0))
                 roi_sum = float(np.sum(img[y0:y1, x0:x1]))
                 roi_max = float(patch.max()) if patch.size else float("nan")
-                lb, lb_density, n_bg = annulus_background(
-                    img, box, inner_half_width=inner, outer_half_width=outer, stat=stat)
-                gb = gb_density * n_px
+
+                ann = ann_d = float("nan")
+                n_bg = min_bg_px
+                if ann_cfg.get("enabled", False):
+                    ann, ann_d, n_bg = annulus_background(
+                        img, box,
+                        inner_half_width=int(ann_cfg["inner_half_width"]),
+                        outer_half_width=int(ann_cfg["outer_half_width"]),
+                        stat=str(ann_cfg["stat"]))
+
+                values = {
+                    "roi_sum_raw": roi_sum,
+                    "background_global": float(b_global[k]),
+                    "count_corrected_global": roi_sum - float(b_global[k]),
+                    "background_spatial": float(b_spatial[k]),
+                    "count_corrected_spatial": roi_sum - float(b_spatial[k]),
+                    "background_fixed_offset": float(b_fixed[k]),
+                    "count_corrected_fixed_offset": roi_sum - float(b_fixed[k]),
+                    "background_annulus_contaminated": ann,
+                    "count_corrected_annulus_contaminated": roi_sum - ann,
+                    "background_annulus_density_contaminated": ann_d,
+                }
 
                 flags: list[str] = []
                 if roi_max >= saturation:
                     flags.append("roi_saturated")
                 if n_px != full_box_px or _touches_edge(box, img.shape, edge_margin):
                     flags.append("roi_touches_edge")
-                if n_bg < min_bg_px:
+                if ann_cfg.get("enabled", False) and n_bg < min_bg_px:
                     flags.append("local_bg_underdetermined")
-                if not (np.isfinite(roi_sum) and np.isfinite(lb) and np.isfinite(gb)):
+                if not all(np.isfinite(values[c]) for c in
+                           ("roi_sum_raw", "background_global", "background_spatial",
+                            "background_fixed_offset")):
                     flags.append("nonfinite_count")
                 if not site_map.detected[k]:
                     flags.append("site_not_detected")
@@ -327,22 +405,18 @@ def _extract_rows(cfg: Config, metas: list[ShotMeta], site_map: SiteMap,
                     "frame_elapsed_s": m.frame_elapsed_s.get(fid),
                     "site_x": float(site_map.centers_yx[k, 1]),
                     "site_y": float(site_map.centers_yx[k, 0]),
-                    "roi_sum": roi_sum,
-                    "local_background": lb,
-                    "global_background": gb,
-                    "background_corrected_count": roi_sum - lb,
+                    **values,
+                    "background_corrected_count": values[primary_col],
                     "raw_image_path": m.path.name,
                     "quality_flag": "|".join(flags) if flags else "ok",
                     "grid": site_map.grid_name[k],
                     "site_row": int(site_map.row_index[k]),
                     "site_col": int(site_map.col_index[k]),
                     "roi_n_pixels": n_px,
-                    "local_background_density": lb_density,
                     "roi_max_pixel": roi_max,
-                    "common_mode_corrected_count": roi_sum - gb,
                     "site_detected": bool(site_map.detected[k]),
                 })
-    return rows
+    return rows, frame_diag
 
 
 def _touches_edge(box: tuple[int, int, int, int], shape: tuple[int, int],

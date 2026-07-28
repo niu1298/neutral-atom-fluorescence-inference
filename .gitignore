@@ -9,9 +9,12 @@ experiment-data/
 data/processed/
 data/interim/
 
-# QC reports contain unreduced experimental figures -> local only.
+# Generated reports hold unreduced experimental figures -> local only. Every
+# number they contain that is meant to be public is quoted in docs/ or in
+# reports/readme_metrics.md, which IS tracked.
 reports/qc/
 reports/audit/
+reports/validation/
 
 # ------------------------------------------------------------ local machine
 # Real machine paths live here; only the .example file is committed.

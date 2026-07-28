@@ -82,8 +82,12 @@ def test_roi_sums_match_the_lab_counting_routine(cfg, real_dataset):
 
     mine = (df[(df["shot_order"] == shot_order) & (df["frame_id"] == 0)]
             .sort_values("site_id"))
-    np.testing.assert_allclose(mine["roi_sum"].to_numpy(), lab["raw"][0], atol=1e-9)
-    np.testing.assert_allclose(mine["local_background"].to_numpy(),
+    np.testing.assert_allclose(mine["roi_sum_raw"].to_numpy(), lab["raw"][0],
+                               atol=1e-9)
+    # the annulus is retained as a diagnostic, so parity with the lab helper
+    # still has to hold for it
+    np.testing.assert_allclose(mine["background_annulus_contaminated"].to_numpy(),
                                lab["local_bg"][0], atol=1e-9)
-    np.testing.assert_allclose(mine["background_corrected_count"].to_numpy(),
-                               lab["bgsub"][0], atol=1e-9)
+    np.testing.assert_allclose(
+        mine["count_corrected_annulus_contaminated"].to_numpy(),
+        lab["bgsub"][0], atol=1e-9)

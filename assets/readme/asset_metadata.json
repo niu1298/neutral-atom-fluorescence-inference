@@ -1,13 +1,13 @@
 {
   "provenance": {
     "git": {
-      "commit": "44fe19ea2c2bc9f9063a855cd70f641282047e0b",
+      "commit": "7885893fd4c6dfddf75e19d9e763ae3456a65586",
       "dirty": true,
       "branch": "main"
     },
     "config": {
       "config_file": "paired_100ms.yaml",
-      "config_sha256": "75093c3ae884c752b9a5959adc4fe425d049c1c112d95af61b704b246efdf2aa",
+      "config_sha256": "d1303d264571786f3576847184419619cb618817ba194c3cc3a434d9cd454e08",
       "dataset_id": "paired_100ms_v0",
       "run_id": "20260727_0211",
       "paths": {
@@ -44,11 +44,11 @@
   "selection": {
     "shot_order": 50,
     "shot_rule": "shot whose mean frame-0 raw ROI count is closest to the run median, excluding shot 0 (documented background outlier)",
-    "site_id": 175,
+    "site_id": 160,
     "site_rule": "unflagged site whose mean frame-0 background-corrected count is closest to the median across sites",
     "site_grid": "grid_B",
-    "site_row": 7,
-    "site_col": 5
+    "site_row": 6,
+    "site_col": 0
   },
   "storyboard": [
     {
@@ -65,7 +65,7 @@
     },
     {
       "index": 2,
-      "caption": "One site: signal and local background",
+      "caption": "One site: signal and background",
       "transition_frames": 8,
       "hold_frames": 10
     },
@@ -102,10 +102,11 @@
   ],
   "synthetic_panels": [],
   "provisional_panels": [
-    "hero scene 6 (two-component description)",
-    "count_distribution_fit.png",
-    "reference levels drawn in the hero scene 7 and paired_frame_scatter.png"
+    "hero scene 6 (two-component description) \u2014 descriptive fit on the full dataset, not a held-out fidelity estimate",
+    "count_distribution_fit.png \u2014 same fit, same caveat",
+    "reference levels in hero scene 7 and paired_frame_scatter.png \u2014 display references, not a validated classifier"
   ],
+  "next_milestone": "shot-ordered 60/20/20 split, threshold and mixture baselines evaluated on held-out shots, shot-cluster bootstrap intervals",
   "claim_guard": [
     "Reference levels come from a pooled two-component description fitted on all data. They are display references, not a validated decision rule.",
     "Frame-to-frame disagreement is reported as disagreement. This run has no matched-empty, dark-frame or natural-loss control, so it cannot separate atom loss from misclassification.",
@@ -120,7 +121,7 @@
       "fps": 10,
       "duration_s": 14.4,
       "loop": "infinite",
-      "bytes": 1991792,
+      "bytes": 1988848,
       "megabytes": 1.99,
       "static_fallback": "assets/readme/fluorescence_inference_overview.png",
       "static_fallback_frame": 111,
@@ -133,15 +134,15 @@
       },
       "count_distribution_fit.png": {
         "path": "assets/readme/count_distribution_fit.png",
-        "bytes": 181551
+        "bytes": 189714
       },
       "paired_frame_scatter.png": {
         "path": "assets/readme/paired_frame_scatter.png",
-        "bytes": 324305
+        "bytes": 336484
       },
       "site_summary_map.png": {
         "path": "assets/readme/site_summary_map.png",
-        "bytes": 137028
+        "bytes": 141480
       }
     },
     "metrics_fragment": "reports/readme_metrics.md",

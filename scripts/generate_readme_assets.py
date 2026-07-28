@@ -59,7 +59,7 @@ PNG_NAME = "fluorescence_inference_overview.png"
 SCENES = [
     ("Two consecutive frames", 6, 10),
     ("Site ROIs", 6, 10),
-    ("One site: signal and local background", 8, 10),
+    ("One site: signal and background", 8, 10),
     ("Raw ROI counts", 6, 10),
     ("Background-corrected counts", 8, 10),
     ("Two-component description", 7, 12),
@@ -97,7 +97,7 @@ def choose_representative(df: pd.DataFrame) -> Selection:
     because of how it looks.
     """
     per_shot = (df[df["frame_id"] == 0]
-                .groupby("shot_order", observed=True)["roi_sum"].mean())
+                .groupby("shot_order", observed=True)["roi_sum_raw"].mean())
     eligible = per_shot.drop(index=0, errors="ignore")
     shot_order = int((eligible - eligible.median()).abs().idxmin())
 
@@ -270,7 +270,7 @@ class SceneBuilder:
         self.height = ctx["height"]
 
         clean = df[df["quality_flag"] == "ok"]
-        self.raw_by_frame = {int(f): g["roi_sum"].to_numpy(float)
+        self.raw_by_frame = {int(f): g["roi_sum_raw"].to_numpy(float)
                              for f, g in clean.groupby("frame_id", observed=True)}
         self.cor_by_frame = {
             int(f): g["background_corrected_count"].to_numpy(float)
@@ -411,10 +411,11 @@ class SceneBuilder:
             a = min(1.0, (z - 0.6) / 0.4)
             for fid, ax_x in ((0, 0.2625), (1, 0.7325)):
                 r = self.site_counts[fid]
+                bg = float(r["roi_sum_raw"]) - float(r["background_corrected_count"])
                 fig.text(ax_x, 0.172,
-                         f"ROI sum {r['roi_sum']:,.0f}      "
-                         f"local bg {r['local_background']:,.0f}      "
-                         f"corrected {r['background_corrected_count']:,.0f}",
+                         f"ROI sum {float(r['roi_sum_raw']):,.0f}      "
+                         f"background {bg:,.0f}      "
+                         f"corrected {float(r['background_corrected_count']):,.0f}",
                          fontsize=12.0, color=rp.INK, ha="center", va="center",
                          alpha=a)
         run_mean = float(self.df[(self.df["site_id"] == s.site_id)
@@ -500,9 +501,9 @@ class SceneBuilder:
         d0 = self.fits[0].separation_d_prime
         d1 = self.fits[1].separation_d_prime
         caption(fig,
-                f"Descriptive two-component fit, display only. Model-implied "
-                f"separation d' = {d0:.2f} (frame 0), {d1:.2f} (frame 1). "
-                f"Not a fidelity and not an error rate.")
+                f"Descriptive fit on the full dataset. Not a held-out fidelity "
+                f"estimate. Model-implied separation d' = {d0:.2f} (frame 0), "
+                f"{d1:.2f} (frame 1).")
 
     # --------------------------------------------------------------- scene 7
     def scene_6(self, fig, t: float) -> None:
@@ -694,12 +695,14 @@ def static_count_distribution(builder: SceneBuilder, out: Path) -> Path:
         ax.set_xlim(*builder.cor_lim)
     axes[0].set_ylabel("site-frame observations")
     axes[0].legend(loc="upper right", fontsize=9)
-    fig.suptitle("Pooled background-corrected count distribution, "
-                 "with a descriptive two-component fit")
+    fig.suptitle("Pooled background-corrected count distribution — "
+                 "descriptive fit on the full dataset")
     rp.provisional_note(
-        fig, "Descriptive fit for display: fitted on all data, no held-out split, "
-             "no per-site structure. d' and the crossing describe this fit; "
-             "neither is a readout fidelity nor an error rate.")
+        fig, "Descriptive fit on the full dataset. NOT a held-out fidelity "
+             "estimate: fitted on all data, no train/validation/test split, no "
+             "per-site structure. The crossing is a display reference, not a "
+             "validated classifier. d' describes this fit and is not an error "
+             "rate. Formal held-out evaluation is the next milestone.")
     return rp.save(fig, out)
 
 
@@ -734,9 +737,11 @@ def static_paired_scatter(builder: SceneBuilder, out: Path) -> Path:
     rp.provisional_note(
         fig, f"{pr['n_pairs']:,} site-shot pairs from {d['n_shots']} shots and "
              f"{d['n_sites']} sites. Site-level pairs are not independent "
-             f"experimental units; the independent units are the shots. Dashed "
-             f"lines are descriptive per-frame reference levels, not thresholds "
-             f"fitted on a training split.")
+             f"experimental units; the independent units are the shots. The "
+             f"dashed lines are descriptive per-frame reference levels from a "
+             f"fit on the full dataset — a display reference, NOT a validated "
+             f"classifier and NOT a held-out fidelity estimate. The four "
+             f"regions are apparent regions, not measured transitions.")
     return rp.save(fig, out)
 
 
@@ -745,7 +750,7 @@ def static_site_map(builder: SceneBuilder, site_stats: pd.DataFrame,
     rp.apply_style()
     f0 = site_stats[site_stats["frame_id"] == 0]
     panels = [("mean", "mean background-corrected count", rp.SEQ_CMAP),
-              ("local_background", "mean local background", "cividis"),
+              ("local_background", "mean background under the ROI", "cividis"),
               ("interdecile_spread", "P90 - P10 spread", "viridis")]
     fig, axes = rp.plt.subplots(1, 3, figsize=(15.6, 5.0), layout="constrained")
     for ax, (col, label, cmap) in zip(axes, panels):
@@ -808,16 +813,19 @@ def write_metrics_fragment(cfg, metrics: dict[str, Any], selection: Selection,
     ]
 
     background = [
-        row("Frame 1 minus frame 0, site-free reference",
-            f"{bg['common_mode']['frame1_minus_frame0_per_px']['mean']:+.2f} "
-            f"± {bg['common_mode']['frame1_minus_frame0_per_px']['std']:.2f} counts/px"),
-        row("Frame 1 minus frame 0, local annulus",
-            f"{bg['local']['frame1_minus_frame0_per_px']['mean']:+.2f} "
-            f"± {bg['local']['frame1_minus_frame0_per_px']['std']:.2f} counts/px"),
-        row("Local annulus level, frame 0",
-            f"{bg['local']['frame0_mean_per_px']:.1f} counts/px"),
-        row("Site-free level, frame 0",
-            f"{bg['common_mode']['frame0_mean_per_px']:.1f} counts/px"),
+        row("Frame 1 minus frame 0, template + offset (primary)",
+            f"{bg['template_plus_offset']['frame1_minus_frame0_per_px']['mean']:+.2f} "
+            f"± {bg['template_plus_offset']['frame1_minus_frame0_per_px']['std']:.2f} counts/px"),
+        row("Frame 1 minus frame 0, global site-free median",
+            f"{bg['global_site_free']['frame1_minus_frame0_per_px']['mean']:+.2f} "
+            f"± {bg['global_site_free']['frame1_minus_frame0_per_px']['std']:.2f} counts/px"),
+        row("Frame 1 minus frame 0, legacy annulus (contaminated)",
+            f"{bg['annulus_contaminated']['frame1_minus_frame0_per_px']['mean']:+.2f} "
+            f"± {bg['annulus_contaminated']['frame1_minus_frame0_per_px']['std']:.2f} counts/px"),
+        row("Background level under a ROI, frame 0 (primary)",
+            f"{bg['template_plus_offset']['frame0_mean_per_px']:.1f} counts/px"),
+        row("Legacy annulus level, frame 0",
+            f"{bg['annulus_contaminated']['frame0_mean_per_px']:.1f} counts/px"),
     ]
 
     paired = [
@@ -853,9 +861,12 @@ def write_metrics_fragment(cfg, metrics: dict[str, Any], selection: Selection,
 
 {rp.markdown_table(background, ["quantity", "value"])}
 
-The annulus shift is about four times the site-free shift. The annulus is not
-an atom-free region at a 10–11 px site pitch, so part of what it calls
-"background" is array light that itself changes between the frames.
+The two site-masked estimators agree with each other to 0.4 counts/px and with
+the whole-frame median shift. The legacy annulus reports a shift about three
+times larger, with seven times the spread: at a 10–11 px site pitch its 13–33 px
+ring contains roughly ten neighbouring sites, so part of what it calls
+"background" is array light that itself changes between the frames. It is kept
+as a diagnostic column and is not used for inference.
 
 ### Paired-readout agreement
 
@@ -1039,10 +1050,15 @@ def main() -> int:
                         "hold_frames": h} for i, (c, m, h) in enumerate(SCENES)],
         "synthetic_panels": [],
         "provisional_panels": [
-            "hero scene 6 (two-component description)",
-            "count_distribution_fit.png",
-            "reference levels drawn in the hero scene 7 and paired_frame_scatter.png",
+            "hero scene 6 (two-component description) — descriptive fit on the "
+            "full dataset, not a held-out fidelity estimate",
+            "count_distribution_fit.png — same fit, same caveat",
+            "reference levels in hero scene 7 and paired_frame_scatter.png — "
+            "display references, not a validated classifier",
         ],
+        "next_milestone": (
+            "shot-ordered 60/20/20 split, threshold and mixture baselines "
+            "evaluated on held-out shots, shot-cluster bootstrap intervals"),
         "claim_guard": metrics["interpretation_guard"]["notes"],
         "assets": produced,
         "privacy": {

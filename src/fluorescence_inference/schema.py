@@ -15,6 +15,22 @@ import pandas as pd
 
 PRIMARY_KEY = ("run_id", "shot_id", "frame_id", "site_id")
 
+#: Bumped whenever the column set or the meaning of a column changes.
+#: 1.0 — annulus background as the primary correction.
+#: 2.0 — annulus demoted to a diagnostic; four background methods carried in
+#:       separate columns; `roi_sum` renamed `roi_sum_raw`.
+SCHEMA_VERSION = "2.0"
+
+#: v1 column -> v2 column, for reading an older table.
+V1_TO_V2 = {
+    "roi_sum": "roi_sum_raw",
+    "local_background": "background_annulus_contaminated",
+    "global_background": "background_global",
+    "background_corrected_count": "count_corrected_annulus_contaminated",
+    "common_mode_corrected_count": "count_corrected_global",
+    "local_background_density": "background_annulus_density_contaminated",
+}
+
 #: column -> (pandas dtype, nullable, description)
 FRAME_SITE_COLUMNS: dict[str, tuple[str, bool, str]] = {
     "run_id":       ("string",  False, "Sequence identifier, one acquisition run."),
@@ -27,28 +43,79 @@ FRAME_SITE_COLUMNS: dict[str, tuple[str, bool, str]] = {
     "frame_elapsed_s": ("Float64", True, "Exposure start of this frame, seconds from sequence t=0."),
     "site_x":       ("Float64", False, "Site centre column in full-frame pixel coordinates."),
     "site_y":       ("Float64", False, "Site centre row in full-frame pixel coordinates."),
-    "roi_sum":      ("Float64", True,  "Variant A: raw sum over the ROI box, camera counts."),
-    "local_background": ("Float64", True, "Variant B reference: annulus median x ROI pixel count."),
-    "global_background": ("Float64", True, "Variant C reference: site-free median x ROI pixel count, per frame."),
-    "background_corrected_count": ("Float64", True, "roi_sum - local_background (primary measurement)."),
+
+    # ---- method A: no background correction
+    "roi_sum_raw":  ("Float64", True,  "Method A: raw sum over the ROI box, camera counts."),
+
+    # ---- method B: global site-free median of the same frame
+    "background_global": ("Float64", True,
+                          "Method B reference: site-free median of this frame x ROI pixels."),
+    "count_corrected_global": ("Float64", True, "Method B: roi_sum_raw - background_global."),
+
+    # ---- method C: robust smooth spatial surface, refitted per frame
+    "background_spatial": ("Float64", True,
+                           "Method C reference: robust polynomial surface integrated over the ROI."),
+    "count_corrected_spatial": ("Float64", True, "Method C: roi_sum_raw - background_spatial."),
+
     "raw_image_path": ("string", True,  "Shot file NAME only; never an absolute path."),
     "quality_flag": ("string",  False, "'ok' or a '|'-joined list of flag names."),
 }
 
 #: extra columns this project carries beyond the required contract
 OPTIONAL_COLUMNS: dict[str, tuple[str, bool, str]] = {
+    # ---- method D: fixed spatial template plus a per-frame common-mode offset
+    "background_fixed_offset": ("Float64", True,
+                                "Method D reference: fixed template + frame offset, over the ROI."),
+    "count_corrected_fixed_offset": ("Float64", True,
+                                     "Method D: roi_sum_raw - background_fixed_offset."),
+
+    # ---- the primary alias, so downstream code has one canonical column.
+    # Which method it copies is recorded in the metadata sidecar under
+    # `background.primary_method`; it is never a fifth, different estimate.
+    "background_corrected_count": ("Float64", True,
+                                   "Alias of the corrected count from the configured primary method."),
+
+    # ---- retained diagnostics. NOT valid as a primary background: at a
+    # 10-11 px site pitch the 13-33 px annulus contains ~10 neighbouring sites.
+    "background_annulus_contaminated": ("Float64", True,
+                                        "DIAGNOSTIC ONLY, contaminated by neighbouring sites."),
+    "count_corrected_annulus_contaminated": ("Float64", True,
+                                             "DIAGNOSTIC ONLY, do not use for inference."),
+    "background_annulus_density_contaminated": ("Float64", True,
+                                                "DIAGNOSTIC ONLY, annulus statistic per pixel."),
+
     "grid":          ("string",  False, "Sub-array the site belongs to."),
     "site_row":      ("Int16",   False, "Lattice row index within its sub-array."),
     "site_col":      ("Int16",   False, "Lattice column index within its sub-array."),
-    "roi_n_pixels":  ("Int32",   False, "Pixels summed for roi_sum."),
-    "local_background_density": ("Float64", True, "Annulus statistic per pixel, camera counts."),
+    "roi_n_pixels":  ("Int32",   False, "Pixels summed for roi_sum_raw."),
     "roi_max_pixel": ("Float64", True,  "Maximum single-pixel value inside the ROI, saturation check."),
-    "common_mode_corrected_count": ("Float64", True,
-                                    "Variant C: roi_sum - global_background."),
     "site_detected":  ("boolean", False,
                        "A variance peak lies within the detection radius of the "
                        "modelled site position. Geometry confidence, not brightness."),
 }
+
+#: every (background, corrected) pair, keyed by method label
+METHOD_COLUMNS: dict[str, tuple[str | None, str]] = {
+    "raw": (None, "roi_sum_raw"),
+    "global": ("background_global", "count_corrected_global"),
+    "spatial": ("background_spatial", "count_corrected_spatial"),
+    "fixed_offset": ("background_fixed_offset", "count_corrected_fixed_offset"),
+    "annulus_contaminated": ("background_annulus_contaminated",
+                             "count_corrected_annulus_contaminated"),
+}
+
+
+def migrate_v1_to_v2(df: pd.DataFrame) -> pd.DataFrame:
+    """Read a v1 table under v2 names.
+
+    Renaming only. The v1 table has no spatial or fixed-template background, so
+    those columns stay absent rather than being filled with a stand-in — a
+    migrated table is explicitly missing methods C and D.
+    """
+    out = df.rename(columns={k: v for k, v in V1_TO_V2.items() if k in df.columns})
+    out.attrs["schema_version"] = "2.0-migrated-from-1.0"
+    out.attrs["missing_methods"] = ["spatial", "fixed_offset"]
+    return out
 
 ALL_COLUMNS = {**FRAME_SITE_COLUMNS, **OPTIONAL_COLUMNS}
 
@@ -66,6 +133,9 @@ QUALITY_FLAGS = (
     # Flagged rows keep their modelled ROI and are not dropped.
     "site_not_detected",
 )
+
+#: methods whose corrected count must never be used for inference
+CONTAMINATED_METHODS = ("annulus_contaminated",)
 
 
 @dataclass
@@ -160,7 +230,8 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
         errors.append(f"site count differs between frames: {counts_per_frame.to_dict()}")
 
     # ----------------------------------------------------------- numerics
-    for col in ("roi_sum", "local_background", "background_corrected_count"):
+    for col in ("roi_sum_raw", "background_global", "count_corrected_global",
+                "background_spatial", "count_corrected_spatial"):
         vals = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
         n_bad = int(np.count_nonzero(~np.isfinite(vals)))
         stats[f"nonfinite_{col}"] = n_bad

@@ -19,14 +19,20 @@ def make_table(n_shots: int = 3, n_frames: int = 2, n_sites: int = 4
                     "site_id": k, "timestamp": "20260727T000000.0",
                     "exposure_ms": 100.0, "frame_elapsed_s": 0.7 + 0.11 * f,
                     "site_x": 10.0 + k, "site_y": 20.0 + k,
-                    "roi_sum": 1000.0 + k, "local_background": 500.0,
-                    "global_background": 480.0,
-                    "background_corrected_count": 500.0 + k,
+                    "roi_sum_raw": 1000.0 + k,
+                    "background_global": 480.0,
+                    "count_corrected_global": 520.0 + k,
+                    "background_spatial": 490.0,
+                    "count_corrected_spatial": 510.0 + k,
+                    "background_fixed_offset": 495.0,
+                    "count_corrected_fixed_offset": 505.0 + k,
+                    "background_corrected_count": 505.0 + k,
+                    "background_annulus_contaminated": 500.0,
+                    "count_corrected_annulus_contaminated": 500.0 + k,
+                    "background_annulus_density_contaminated": 20.0,
                     "raw_image_path": f"shot_{s:02d}.h5", "quality_flag": "ok",
                     "grid": "grid_A", "site_row": k // 2, "site_col": k % 2,
-                    "roi_n_pixels": 25, "local_background_density": 20.0,
-                    "roi_max_pixel": 900.0,
-                    "common_mode_corrected_count": 520.0 + k,
+                    "roi_n_pixels": 25, "roi_max_pixel": 900.0,
                     "site_detected": True,
                 })
     return schema.coerce(pd.DataFrame(rows))
@@ -72,7 +78,7 @@ def test_site_count_mismatch_is_an_error():
 
 def test_unflagged_nonfinite_value_is_an_error():
     df = make_table()
-    df.loc[0, "background_corrected_count"] = np.nan
+    df.loc[0, "count_corrected_global"] = np.nan
     r = schema.validate(df)
     assert not r.ok
     assert any("non-finite" in e for e in r.errors)
@@ -80,7 +86,7 @@ def test_unflagged_nonfinite_value_is_an_error():
 
 def test_flagged_nonfinite_value_is_accepted():
     df = make_table()
-    df.loc[0, "background_corrected_count"] = np.nan
+    df.loc[0, "count_corrected_global"] = np.nan
     df.loc[0, "quality_flag"] = "nonfinite_count"
     r = schema.validate(df, expected_frames=2, expected_shots=3, expected_sites=4)
     assert r.ok, r.errors
@@ -112,7 +118,7 @@ def test_moving_site_coordinates_are_an_error():
 
 
 def test_missing_required_column_short_circuits():
-    df = make_table().drop(columns=["local_background"])
+    df = make_table().drop(columns=["background_global"])
     r = schema.validate(df)
     assert not r.ok
     assert "missing required columns" in r.errors[0]
@@ -120,7 +126,7 @@ def test_missing_required_column_short_circuits():
 
 def test_raise_if_failed():
     with pytest.raises(ValueError, match="failed validation"):
-        schema.validate(make_table().drop(columns=["roi_sum"])).raise_if_failed()
+        schema.validate(make_table().drop(columns=["roi_sum_raw"])).raise_if_failed()
 
 
 def test_empty_frame_has_declared_columns():
