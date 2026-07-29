@@ -2,45 +2,45 @@
   "analysis_version": "loss-sweeps-v1.0",
   "assets": {
     "background_drift_sweeps.png": {
-      "bytes": 175332,
+      "bytes": 174008,
       "height_px": 789,
       "path": "background_drift_sweeps.png",
-      "sha256": "f88c53a6a98c206cfbddd5473b47ce0f08edcd2bfc09e7222040a63e41f9725b",
+      "sha256": "4626225a2522427649777111a68a29ca94d6cd079c1f95c4e1c0d1b7d20910e2",
       "width_px": 1787
     },
     "bright_wait_decay.png": {
-      "bytes": 103931,
-      "height_px": 835,
+      "bytes": 111532,
+      "height_px": 834,
       "path": "bright_wait_decay.png",
-      "sha256": "1ebf2190ab463669ff6d8bae9ed242a77b40b5eea341dac80c958bd81acafcc2",
+      "sha256": "60959aac90d5edfcd833475bd1bca3c0a7efe5768dc426d61c0b88d2b0df8e57",
       "width_px": 1817
     },
     "dark_hold_retention.png": {
-      "bytes": 99647,
-      "height_px": 927,
+      "bytes": 88033,
+      "height_px": 926,
       "path": "dark_hold_retention.png",
-      "sha256": "59feb343dab9e7538014a9e63beaf59697b977a27fcf01ebc6fab892d9075d02",
+      "sha256": "388f871f63dc72570ca9f7c16e9715f5db0afb29d9f6afff8d41501cae4692fb",
       "width_px": 1427
     },
     "loss_sweep_overview.png": {
-      "bytes": 216654,
-      "height_px": 1293,
+      "bytes": 211608,
+      "height_px": 1292,
       "path": "loss_sweep_overview.png",
-      "sha256": "331ef9fe7e61f553e49b3344a4c54aaf1f24ec292e7d311b07eb44b00463ba54",
+      "sha256": "bfacb381bc71e0ddcb47a998a4c9a95e000b9b619cd7a8f153712a78242c559a",
       "width_px": 1877
     },
     "per_site_retention_map.png": {
-      "bytes": 77573,
+      "bytes": 78017,
       "height_px": 837,
       "path": "per_site_retention_map.png",
-      "sha256": "39a40901eeba16f609ba4e16ff38d6a00633d420daddba353481264b5be306d3",
-      "width_px": 1871
+      "sha256": "2bfca8e34884d2e8005ec128754ef44fc3cdad00c55f35afe4d64000825c0e5f",
+      "width_px": 1865
     },
     "sequence_design.png": {
-      "bytes": 112795,
-      "height_px": 955,
+      "bytes": 104785,
+      "height_px": 954,
       "path": "sequence_design.png",
-      "sha256": "5a71b7cc11a82059d80740a443adc4624b21fa529ddcbf16791ae84daba3b505",
+      "sha256": "16b780f202bbd5a537116dd40d896819bc071fa18c386800fde74dce3bede57c",
       "width_px": 1817
     }
   },
@@ -51,14 +51,14 @@
       "sha256": "017408c32c1a2c8d3ff53486123ab764115c8f2995729ddf5dcab5bb89cfd428"
     },
     "loss-sweep-results": {
-      "bytes": 438,
+      "bytes": 910,
       "path": "loss_sweep_results.md",
-      "sha256": "e8fe0da0082b764849309be3c1ee3905b81328c4e859a2c51c96ab4db00e35bb"
+      "sha256": "c6d3e56f86cb62abdb6de49b881e085f2aeb86e6958c93b83f8feb7de624a54f"
     },
     "readme-metrics-v1": {
-      "bytes": 2376,
+      "bytes": 2763,
       "path": "readme_metrics_v1.md",
-      "sha256": "992828089a539420f94e2270f0b19b45c4f73b4f975676ec94f621682dac49d6"
+      "sha256": "14a7a1124589c38cd258aef8e2bd1b62fd62f31dde6e2ed5b20ac69c09a92654"
     },
     "sweep-validation": {
       "bytes": 458,
@@ -70,9 +70,9 @@
   "independent_experimental_unit": "shot",
   "injection": {
     "mode": "published",
-    "readme_metrics_sha256": "040433bfc8a4f3406dbe2e6fdd4206f6f4cb13fc8941ed447d8f0d1e50ce8bfd",
+    "readme_metrics_sha256": "50500c3a7fcfae7e9136e6a68c91d8083385c1e95d3c4e559fc7bb68f410d307",
     "readme_metrics_updated": false,
-    "readme_sha256": "7533992262bacc57934ed45c6e91402d90374091c925e608aaa21ac1a2418a5f",
+    "readme_sha256": "6aa1fd3f3697ed667ac3e058c3d0e6ab2b2942cf47395493ac39357d212372f6",
     "readme_updated": false
   },
   "optional_assets_skipped": {
@@ -91,7 +91,7 @@
     "sequence_design": "command-level schematic from audited frame, exposure, sweep, switch-command, and DDS-command evidence"
   },
   "source_file": "loss_sweep_results.json",
-  "source_sha256": "f4c2cb9aa048a2c81e311820073a532226dce7334b20d3b97032b0fa5b2d15e1",
+  "source_sha256": "49b29296494aaf49d46cb36b76bb0d5e56f7cf0e66f50362f17824d2e0313411",
   "v0_qc_source_file": "qc_summary.json",
   "v0_qc_source_sha256": "2efd8ad0e00c12b2a98f5424393bbf8b42eca01f4e083e6337fe85479b4294c8",
   "visible_text": {

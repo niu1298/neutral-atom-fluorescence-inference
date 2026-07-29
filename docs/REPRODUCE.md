@@ -10,7 +10,8 @@ The workflow:
 - reads raw HDF5 shots without modifying, renaming, or moving them;
 - overwrites generated processed/report/publication outputs in place;
 - never substitutes synthetic measurements when raw data are missing;
-- performs no Git command, cleanup, reset, merge, or push;
+- uses read-only Git status/commit checks but performs no cleanup, reset,
+  commit, merge, or push;
 - stops at the first failed audit, validation, analysis, asset, or test stage.
 
 The publication generator may remove a stale **optional** per-site or latent
@@ -19,17 +20,22 @@ required supporting assets are not deleted.
 
 ## 1. Environment and local configuration
 
-Python 3.10 or newer is required. Create and activate an environment, then
-install the package with test dependencies:
+Python 3.10 or newer is required. On Windows PowerShell, create the
+repository-local environment and install the test dependencies with:
 
-```bash
-python -m venv .venv
-python -m pip install -e ".[dev]"
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+Copy-Item configs\local.example.toml configs\local.toml
 ```
 
-Copy the untracked local configuration:
+After creation, every Windows command below calls the repository-local
+interpreter explicitly; activation is optional. On POSIX shells, the equivalent
+setup is:
 
 ```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e ".[dev]"
 cp configs/local.example.toml configs/local.toml
 ```
 
@@ -51,30 +57,51 @@ replace a missing measurement.
 
 ## 2. One-command reproduction
 
-From the repository root:
+From the repository root on Windows:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\reproduce_all.py
+```
+
+On POSIX:
 
 ```bash
-python scripts/reproduce_all.py
+./.venv/bin/python scripts/reproduce_all.py
 ```
 
 The default run uses 1,000 complete-shot bootstrap replicates, seed `20260728`,
-and finishes with the complete test suite. The orchestrator resolves the
-configured report roots for all three datasets and explicitly forwards the
-geometry, background, command-audit, and V0-QC paths between stages. The
-reviewed compact loss-sweep result is always regenerated at the tracked
-repository path used by the public assets.
+requires a clean Git worktree, and finishes with the complete test suite. Only
+after every stage and test passes does it write
+`reports/publication_manifest.json`. The manifest binds the analysis-code
+commit, configuration and input-manifest hashes, seeds, dependency versions,
+reviewed result hash, and exact same-environment public-asset hashes.
+
+The orchestrator resolves the configured report roots for all three datasets
+and explicitly forwards geometry, background, command-audit, and V0-QC paths
+between stages. The reviewed compact loss-sweep result is always regenerated at
+the tracked repository path used by the public assets.
 
 Useful controls:
 
-```bash
-python scripts/reproduce_all.py --dry-run
-python scripts/reproduce_all.py --bootstrap 1000 --seed 20260728
-python scripts/reproduce_all.py --skip-tests
+```powershell
+.\.venv\Scripts\python.exe scripts\reproduce_all.py --dry-run
+.\.venv\Scripts\python.exe scripts\reproduce_all.py --bootstrap 1000 --seed 20260728
+.\.venv\Scripts\python.exe scripts\reproduce_all.py --skip-tests
 ```
 
 `--dry-run` prints the configured commands without executing a stage.
 `--skip-tests` is diagnostic only and does not certify a complete
 reproduction.
+
+To render figures and generated fragments without modifying the README or
+reviewed outputs:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_loss_sweep_assets.py --results reports\loss_sweep_results.json --v0-qc reports\qc\qc_summary.json --output-dir _scratch\publication-preview
+```
+
+The `_scratch` tree is ignored. This preview does not replace the reviewed
+reproduction or the README narrative tests.
 
 Every subprocess uses the active interpreter and inherits these fixed
 settings:
@@ -114,6 +141,9 @@ python scripts/generate_loss_sweep_assets.py
 python -m pytest
 ```
 
+On Windows, replace the leading `python` in each command with
+`.\.venv\Scripts\python.exe`.
+
 When report roots differ from the example, use
 `python scripts/reproduce_all.py --dry-run` to see the explicit cross-stage
 paths supplied to the final analysis and publication commands. Configured
@@ -132,6 +162,7 @@ truth.
 | held-out sweep analysis | reviewed `loss_sweep_results.json` plus ignored execution metadata |
 | sweep asset generation | public figures, compact README markers, detailed generated metrics |
 | tests | pass/fail result; no scientific fitting by the test runner |
+| reviewed manifest | analysis commit, inputs, environment, seeds, result hash, and four exact public-asset hashes |
 
 The V0 exporter retains its QC stage. The sweep exports use `--no-qc` because
 their dedicated geometry, background, held-out-model, and clustering gates run
@@ -142,32 +173,54 @@ remain ignored local outputs. Reviewed compact results, generated metrics, and
 public assets are tracked. Raw shots and full processed experimental tables
 must not be committed.
 
-## 5. Determinism and review
+## 5. Reviewed publication workflow
 
-The public sweep renderer reads only the reviewed loss-sweep result JSON.
-Running it repeatedly in an unchanged environment must leave the README,
-metrics fragments, asset metadata, and PNG hashes unchanged. The paired asset
-tests apply the same byte-determinism rule to the preserved V0 figures and hero
-animation.
+The reviewed workflow separates scientific regeneration from publication-only
+narrative edits:
 
-After a complete run:
+1. **Analysis Commit A:** commit the analysis/configuration code, start from a
+   clean worktree, and run the full command. It regenerates the reviewed result
+   and assets, runs the complete tests, and writes the publication manifest.
+2. Review the result JSON, generated metrics, four landing-page assets, manifest
+   hashes, and every tracked diff. Do not hand-edit a generated marker body.
+3. **Publication Commit B:** copy the reviewed outputs into the publication
+   branch and limit subsequent edits to publication prose/tests. Analysis code,
+   configs, and scientific generators must remain identical to Commit A. The
+   non-scientific publication orchestrator may receive a verification-only
+   correction; it remains excluded from the scientific payload and cannot
+   change any generator it launches.
+4. From a clean Publication Commit B, run non-overwriting reviewed
+   verification and the complete tests:
 
-```bash
+```powershell
 git status --short
+.\.venv\Scripts\python.exe scripts\reproduce_all.py --verify-reviewed
+.\.venv\Scripts\python.exe -m pytest
 git diff --check
-python -m pytest
 ```
 
-Review every tracked change. A changed hash can reflect a legitimate input,
-dependency, rendering, or source-state difference; it must be explained rather
-than hidden. A reproducible computation does not convert apparent occupancy
-into ground truth, model overlap into empirical fidelity, or an operational
-time constant into an intrinsic lifetime.
+`--verify-reviewed` reads the settings and Commit A identity from
+`reports/publication_manifest.json`, first regenerates every ignored processed,
+audit, geometry, and background prerequisite, then writes candidates in a
+temporary validation directory and compares the scientific payload and four
+public asset hashes. It does not overwrite the reviewed result, public assets,
+README, or manifest. It fails if guarded analysis/configuration paths differ
+from Commit A. Verification materializes Commit-A configuration content through
+the recorded Windows checkout filters, so provenance hashes reproduce the
+certified clean worktree's CRLF representation.
+
+The public sweep renderer reads only the reviewed loss-sweep result JSON.
+Exact asset-byte equality is required only in the manifest’s recorded Windows
+environment; cross-platform Matplotlib or FreeType equality is not promised.
+A reproducible computation does not convert apparent occupancy into ground
+truth, model overlap into empirical fidelity, or an operational time constant
+into an intrinsic lifetime.
 
 ## 6. Failure behavior
 
 Exit code `0` means every requested stage passed. Exit code `2` means local
-configuration could not be resolved or a stage failed.
+configuration could not be resolved, the worktree/code guard failed, reviewed
+verification disagreed, or a stage failed.
 
 Common recovery checks:
 

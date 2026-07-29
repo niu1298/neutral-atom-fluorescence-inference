@@ -223,7 +223,7 @@ The later V1 interval factors correspond to apparent fixed losses of 14.08%,
 13.25% (95% cluster CI 11.60--14.70%), compared with a 3.00% bright-model
 prediction (2.69--3.28%). The observed-minus-predicted gap is 10.26%
 (8.62--11.79%). Thus the simple constant-rate bright-wait model still does
-not explain the full inter-readout loss.
+not explain the full apparent inter-readout loss.
 
 That mismatch does **not** prove a fixed per-exposure or fixed per-pulse cost.
 The two sequences have a one-pitch coordinate displacement, different

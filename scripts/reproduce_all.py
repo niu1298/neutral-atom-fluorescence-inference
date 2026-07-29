@@ -42,6 +42,9 @@ CODE_GUARD_PATHS = (
     "scripts",
     "configs",
     "pyproject.toml",
+    # Publication Commit B may repair this non-scientific verifier without
+    # changing the analysis implementation or any generator it launches.
+    ":(exclude)scripts/reproduce_all.py",
 )
 
 DETERMINISTIC_ENVIRONMENT = {
@@ -169,11 +172,15 @@ def default_publication_targets() -> PublicationTargets:
     return PublicationTargets(result=PUBLIC_RESULT)
 
 
-def _paired_asset_arguments(targets: PublicationTargets) -> tuple[str, ...]:
+def _paired_asset_arguments(
+    targets: PublicationTargets,
+    *,
+    paired_config: str | Path = PAIRED_CONFIG,
+) -> tuple[str, ...]:
     arguments = [
         "scripts/generate_readme_assets.py",
         "--config",
-        PAIRED_CONFIG,
+        _argument_path(Path(paired_config)),
     ]
     if targets.paired_assets_dir is not None:
         arguments.extend(
@@ -190,9 +197,15 @@ def _analysis_arguments(
     targets: PublicationTargets,
     analysis_code_commit: str | None,
     require_clean_provenance: bool,
+    dark_config: str | Path = DARK_CONFIG,
+    bright_config: str | Path = BRIGHT_CONFIG,
 ) -> tuple[str, ...]:
     arguments = [
         "scripts/analyze_loss_sweeps.py",
+        "--dark-config",
+        _argument_path(Path(dark_config)),
+        "--bright-config",
+        _argument_path(Path(bright_config)),
         "--geometry-report",
         _argument_path(paths.geometry_report),
         "--background-report",
@@ -244,68 +257,7 @@ def build_generation_steps(
     paths = default_output_paths() if paths is None else paths
     targets = default_publication_targets() if targets is None else targets
     return (
-        Step(
-            "audit paired readout",
-            ("scripts/audit_source_data.py", "--config", PAIRED_CONFIG),
-        ),
-        Step(
-            "export paired readout",
-            ("scripts/export_processed_dataset.py", "--config", PAIRED_CONFIG),
-        ),
-        Step(
-            "validate paired-readout geometry",
-            ("scripts/validate_site_geometry.py", "--config", PAIRED_CONFIG),
-        ),
-        Step(
-            "compare paired-readout backgrounds",
-            ("scripts/compare_background_methods.py", "--config", PAIRED_CONFIG),
-        ),
-        Step(
-            "audit switch-off hold sweep",
-            ("scripts/audit_source_data.py", "--config", DARK_CONFIG),
-        ),
-        Step(
-            "audit bright-wait sweep",
-            ("scripts/audit_source_data.py", "--config", BRIGHT_CONFIG),
-        ),
-        Step(
-            "export switch-off hold sweep",
-            (
-                "scripts/export_processed_dataset.py",
-                "--config",
-                DARK_CONFIG,
-                "--no-qc",
-            ),
-        ),
-        Step(
-            "export bright-wait sweep",
-            (
-                "scripts/export_processed_dataset.py",
-                "--config",
-                BRIGHT_CONFIG,
-                "--no-qc",
-            ),
-        ),
-        Step(
-            "validate loss-sweep geometry",
-            (
-                "scripts/validate_sweep_geometry.py",
-                "--config",
-                DARK_CONFIG,
-                "--config",
-                BRIGHT_CONFIG,
-            ),
-        ),
-        Step(
-            "compare loss-sweep backgrounds",
-            (
-                "scripts/compare_loss_sweep_backgrounds.py",
-                "--config",
-                DARK_CONFIG,
-                "--config",
-                BRIGHT_CONFIG,
-            ),
-        ),
+        *build_prerequisite_steps(),
         Step(
             "analyze loss sweeps",
             _analysis_arguments(
@@ -331,6 +283,91 @@ def build_generation_steps(
     )
 
 
+def build_prerequisite_steps() -> tuple[Step, ...]:
+    """Regenerate every ignored input consumed by public result generation."""
+    return build_configured_prerequisite_steps(
+        paired_config=PAIRED_CONFIG,
+        dark_config=DARK_CONFIG,
+        bright_config=BRIGHT_CONFIG,
+    )
+
+
+def build_configured_prerequisite_steps(
+    *,
+    paired_config: str | Path,
+    dark_config: str | Path,
+    bright_config: str | Path,
+) -> tuple[Step, ...]:
+    """Build preprocessing stages for explicit frozen configuration files."""
+    paired = _argument_path(Path(paired_config))
+    dark = _argument_path(Path(dark_config))
+    bright = _argument_path(Path(bright_config))
+    return (
+        Step(
+            "audit paired readout",
+            ("scripts/audit_source_data.py", "--config", paired),
+        ),
+        Step(
+            "export paired readout",
+            ("scripts/export_processed_dataset.py", "--config", paired),
+        ),
+        Step(
+            "validate paired-readout geometry",
+            ("scripts/validate_site_geometry.py", "--config", paired),
+        ),
+        Step(
+            "compare paired-readout backgrounds",
+            ("scripts/compare_background_methods.py", "--config", paired),
+        ),
+        Step(
+            "audit switch-off hold sweep",
+            ("scripts/audit_source_data.py", "--config", dark),
+        ),
+        Step(
+            "audit bright-wait sweep",
+            ("scripts/audit_source_data.py", "--config", bright),
+        ),
+        Step(
+            "export switch-off hold sweep",
+            (
+                "scripts/export_processed_dataset.py",
+                "--config",
+                dark,
+                "--no-qc",
+            ),
+        ),
+        Step(
+            "export bright-wait sweep",
+            (
+                "scripts/export_processed_dataset.py",
+                "--config",
+                bright,
+                "--no-qc",
+            ),
+        ),
+        Step(
+            "validate loss-sweep geometry",
+            (
+                "scripts/validate_sweep_geometry.py",
+                "--config",
+                dark,
+                "--config",
+                bright,
+            ),
+        ),
+        Step(
+            "compare loss-sweep backgrounds",
+            (
+                "scripts/compare_loss_sweep_backgrounds.py",
+                "--config",
+                dark,
+                "--config",
+                bright,
+            ),
+        ),
+    )
+
+
 def build_verification_steps(
     *,
     bootstrap: int,
@@ -338,9 +375,17 @@ def build_verification_steps(
     paths: OutputPaths,
     targets: PublicationTargets,
     analysis_code_commit: str,
+    paired_config: str | Path = PAIRED_CONFIG,
+    dark_config: str | Path = DARK_CONFIG,
+    bright_config: str | Path = BRIGHT_CONFIG,
 ) -> tuple[Step, ...]:
-    """Generate only temporary reviewed candidates from frozen intermediates."""
+    """Regenerate ignored prerequisites, then isolated reviewed candidates."""
     return (
+        *build_configured_prerequisite_steps(
+            paired_config=paired_config,
+            dark_config=dark_config,
+            bright_config=bright_config,
+        ),
         Step(
             "generate candidate loss-sweep result",
             _analysis_arguments(
@@ -350,11 +395,16 @@ def build_verification_steps(
                 targets=targets,
                 analysis_code_commit=analysis_code_commit,
                 require_clean_provenance=True,
+                dark_config=dark_config,
+                bright_config=bright_config,
             ),
         ),
         Step(
             "generate candidate paired-readout assets",
-            _paired_asset_arguments(targets),
+            _paired_asset_arguments(
+                targets,
+                paired_config=paired_config,
+            ),
         ),
         Step(
             "generate candidate loss-sweep assets",
@@ -391,6 +441,59 @@ def _run_git(arguments: Sequence[str]) -> subprocess.CompletedProcess:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ReproductionError(f"Git preflight failed: {exc}") from exc
+
+
+def _read_git_checkout_bytes(commit: str, relative_path: str) -> bytes:
+    """Read Commit-A content with this environment's checkout filters."""
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "cat-file",
+                "--filters",
+                f"--path={relative_path}",
+                f"{commit}:{relative_path}",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=False,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ReproductionError(
+            f"cannot read reviewed config blob {relative_path}: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ReproductionError(
+            f"cannot read reviewed config blob {relative_path}: {detail}"
+        )
+    return bytes(result.stdout)
+
+
+BlobReader = Callable[[str, str], bytes]
+
+
+def materialize_reviewed_configs(
+    *,
+    analysis_code_commit: str,
+    destination: Path,
+    blob_reader: BlobReader | None = None,
+) -> dict[str, Path]:
+    """Write exact Commit-A config blobs for provenance-stable verification."""
+    reader = _read_git_checkout_bytes if blob_reader is None else blob_reader
+    destination.mkdir(parents=True, exist_ok=True)
+    materialized: dict[str, Path] = {}
+    for name, relative in (
+        ("paired", PAIRED_CONFIG),
+        ("dark", DARK_CONFIG),
+        ("bright", BRIGHT_CONFIG),
+    ):
+        target = destination / Path(relative).name
+        target.write_bytes(reader(analysis_code_commit, relative))
+        materialized[name] = target
+    return materialized
 
 
 def require_clean_worktree() -> None:
@@ -552,6 +655,10 @@ def verify_reviewed(
         dir=temporary_parent,
     ) as temporary:
         candidate_root = Path(temporary)
+        frozen_configs = materialize_reviewed_configs(
+            analysis_code_commit=analysis_commit,
+            destination=candidate_root / "frozen_configs",
+        )
         paired_assets = candidate_root / "paired_assets"
         sweep_assets = candidate_root / "sweep_assets"
         candidate_result = candidate_root / "loss_sweep_results.json"
@@ -566,6 +673,9 @@ def verify_reviewed(
             paths=paths,
             targets=targets,
             analysis_code_commit=analysis_commit,
+            paired_config=frozen_configs["paired"],
+            dark_config=frozen_configs["dark"],
+            bright_config=frozen_configs["bright"],
         )
         execute_steps(steps, environment=environment)
         candidate_assets = {

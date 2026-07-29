@@ -27,7 +27,7 @@ This is an operational decay under the switch-off command. DDS settings remain c
 
 - **`lambda_bright_effective`:** 0.6084 s^-1 (0.5456–0.6661 s^-1, 95% cluster CI).
 - **`tau_bright_effective`:** 1.64 s (1.50–1.83 s, 95% cluster CI).
-- **Image-1 to image-2 control:** validation selected flat retention; no post-wait retention trend was resolved.
+- **Image-1 to image-2 control:** validation selected a flat post-wait retention model. κ is fixed to zero by that selected structure; the data do not resolve a monotone post-wait trend.
 
 **Cross-dataset comparison.** The sequences remain separate; the comparison propagates complete-shot bootstrap uncertainty.
 
@@ -35,7 +35,9 @@ This is an operational decay under the switch-off command. DDS settings remain c
 - **Bright-model prediction over 50 ms:** 3.00% (2.69–3.28%, 95% cluster CI) loss.
 - **Later-interval apparent fixed loss:** 13.25% (11.60–14.70%, 95% cluster CI).
 - **Observed minus predicted:** 10.26% (8.62–11.79%, 95% cluster CI).
+- **Unresolved floor alternative:** 6.57 percentage-point gap; 6.57–10.26 percentage-point model-structure range. This range is not a confidence interval.
+- **Whole-cycle bootstrap sensitivity:** apparent gap 10.26% (8.81–11.61%, 95% cluster CI); 1000/1000 dark and 1000/1000 bright fits succeeded.
 
-The simple constant-rate bright-wait model does not explain the full inter-readout loss. This does not prove a fixed per-pulse cost.
+The simple constant-rate bright-wait model does not explain the full apparent inter-readout loss. This does not prove a fixed per-pulse cost.
 
 **Latent-state gate.** Not accepted: complete-shot clustered uncertainty for latent transition parameters was not supplied.

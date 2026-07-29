@@ -91,6 +91,18 @@ def test_workflow_contains_no_cleanup_or_git_commands():
     )
 
 
+def test_code_guard_excludes_only_the_publication_orchestrator():
+    exclusions = [
+        path
+        for path in reproduce.CODE_GUARD_PATHS
+        if path.startswith(":(exclude)")
+    ]
+    assert exclusions == [":(exclude)scripts/reproduce_all.py"]
+    assert {"src", "scripts", "configs", "pyproject.toml"} <= set(
+        reproduce.CODE_GUARD_PATHS
+    )
+
+
 def test_execute_steps_is_ordered_and_fail_fast():
     steps = (
         reproduce.Step("first", ("scripts/first.py",)),
@@ -238,8 +250,15 @@ def test_bootstrap_minimum_is_enforced():
         reproduce.parse_args(["--bootstrap", "99", "--dry-run"])
 
 
-def test_verification_steps_write_only_to_isolated_targets(scratch):
+def test_verification_regenerates_prerequisites_and_isolates_candidates(
+    scratch,
+):
     paths = _custom_paths(scratch)
+    frozen = {
+        "paired": scratch / "frozen" / "paired.yaml",
+        "dark": scratch / "frozen" / "dark.yaml",
+        "bright": scratch / "frozen" / "bright.yaml",
+    }
     targets = reproduce.PublicationTargets(
         result=scratch / "candidate" / "result.json",
         paired_assets_dir=scratch / "candidate" / "paired",
@@ -252,13 +271,40 @@ def test_verification_steps_write_only_to_isolated_targets(scratch):
         paths=paths,
         targets=targets,
         analysis_code_commit=commit,
+        paired_config=frozen["paired"],
+        dark_config=frozen["dark"],
+        bright_config=frozen["bright"],
     )
     assert [step.name for step in steps] == [
+        "audit paired readout",
+        "export paired readout",
+        "validate paired-readout geometry",
+        "compare paired-readout backgrounds",
+        "audit switch-off hold sweep",
+        "audit bright-wait sweep",
+        "export switch-off hold sweep",
+        "export bright-wait sweep",
+        "validate loss-sweep geometry",
+        "compare loss-sweep backgrounds",
         "generate candidate loss-sweep result",
         "generate candidate paired-readout assets",
         "generate candidate loss-sweep assets",
     ]
-    analysis, paired, sweeps = (step.arguments for step in steps)
+    assert steps[:10] == reproduce.build_configured_prerequisite_steps(
+        paired_config=frozen["paired"],
+        dark_config=frozen["dark"],
+        bright_config=frozen["bright"],
+    )
+    analysis, paired, sweeps = (step.arguments for step in steps[-3:])
+    assert steps[0].arguments[-1] == reproduce._argument_path(frozen["paired"])
+    assert steps[4].arguments[-1] == reproduce._argument_path(frozen["dark"])
+    assert steps[5].arguments[-1] == reproduce._argument_path(frozen["bright"])
+    assert analysis[analysis.index("--dark-config") + 1] == (
+        reproduce._argument_path(frozen["dark"])
+    )
+    assert analysis[analysis.index("--bright-config") + 1] == (
+        reproduce._argument_path(frozen["bright"])
+    )
     assert analysis[analysis.index("--output") + 1] == reproduce._argument_path(
         targets.result
     )
@@ -267,10 +313,40 @@ def test_verification_steps_write_only_to_isolated_targets(scratch):
     assert paired[paired.index("--output-dir") + 1] == reproduce._argument_path(
         targets.paired_assets_dir
     )
+    assert paired[paired.index("--config") + 1] == reproduce._argument_path(
+        frozen["paired"]
+    )
     assert sweeps[sweeps.index("--output-dir") + 1] == reproduce._argument_path(
         targets.sweep_assets_dir
     )
     assert reproduce._argument_path(reproduce.PUBLIC_RESULT) not in analysis
+
+
+def test_reviewed_configs_use_checkout_filtered_commit_bytes(scratch):
+    calls: list[tuple[str, str]] = []
+
+    def fake_blob_reader(commit, relative):
+        calls.append((commit, relative))
+        return f"{relative}\n".encode("utf-8")
+
+    commit = "c" * 40
+    configs = reproduce.materialize_reviewed_configs(
+        analysis_code_commit=commit,
+        destination=scratch / "frozen",
+        blob_reader=fake_blob_reader,
+    )
+    assert calls == [
+        (commit, reproduce.PAIRED_CONFIG),
+        (commit, reproduce.DARK_CONFIG),
+        (commit, reproduce.BRIGHT_CONFIG),
+    ]
+    for name, relative in (
+        ("paired", reproduce.PAIRED_CONFIG),
+        ("dark", reproduce.DARK_CONFIG),
+        ("bright", reproduce.BRIGHT_CONFIG),
+    ):
+        assert configs[name].name == Path(relative).name
+        assert configs[name].read_bytes() == f"{relative}\n".encode("utf-8")
 
 
 def test_verify_reviewed_rejects_publish_or_test_flags():

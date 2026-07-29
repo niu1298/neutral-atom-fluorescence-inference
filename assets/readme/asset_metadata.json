@@ -1,20 +1,20 @@
 {
   "provenance": {
     "git": {
-      "commit": "f4f965ba8bd79d00012a3fcd1ef3f0975d5e0122",
-      "dirty": false,
-      "branch": "main"
+      "commit": "18a684dbe2848e434793a51147d5ddd502b12417",
+      "dirty": true,
+      "branch": "HEAD"
     },
     "config": {
       "config_file": "paired_100ms.yaml",
-      "config_sha256": "d1303d264571786f3576847184419619cb618817ba194c3cc3a434d9cd454e08",
+      "config_sha256": "49bf5f9860ab0c0681146dbae380bcba37c20052b2ed346a2bcb144bd219056f",
       "dataset_id": "paired_100ms_v0",
       "run_id": "20260727_0211",
       "paths": {
         "experiment_data_root": "<configured:present>",
         "tweezer_analysis_src": "<configured:present>",
-        "processed_root": "<configured:present>",
-        "reports_root": "<configured:present>"
+        "processed_root": "<configured>",
+        "reports_root": "<configured>"
       }
     },
     "environment": {
@@ -113,6 +113,20 @@
     "No false-positive rate, false-negative rate, readout fidelity or imaging-loss rate is estimated anywhere in this report."
   ],
   "assets": {
+    "hero": {
+      "path": "assets/readme/fluorescence_inference_overview.gif",
+      "width_px": 1100,
+      "height_px": 660,
+      "n_frames": 144,
+      "fps": 10,
+      "duration_s": 14.4,
+      "loop": "infinite",
+      "bytes": 1988865,
+      "megabytes": 1.99,
+      "static_fallback": "assets/readme/fluorescence_inference_overview.png",
+      "static_fallback_frame": 111,
+      "static_fallback_scene": "Paired readout, frame 0 vs frame 1"
+    },
     "static_figures": {
       "paired_images_roi_overlay.png": {
         "path": "assets/readme/paired_images_roi_overlay.png",
@@ -132,10 +146,7 @@
       }
     },
     "metrics_fragment": "reports/readme_metrics.md",
-    "readme_blocks_injected": [
-      "dataset-line",
-      "results"
-    ]
+    "readme_blocks_injected": []
   },
   "privacy": {
     "images_cropped_to_site_array": true,

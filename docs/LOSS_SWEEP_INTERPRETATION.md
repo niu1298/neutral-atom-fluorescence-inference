@@ -7,8 +7,8 @@ change its scientific meaning.
 
 ## Supporting generated figures
 
-The README uses the four-panel overview as its single primary result. The
-standalone diagnostic views remain available for detailed inspection:
+The README uses the four-panel overview as its primary quantitative result.
+The standalone diagnostic views remain available for detailed inspection:
 
 - [Operational switch-off-hold retention](../assets/readme/dark_hold_retention.png)
 - [Effective bright-wait apparent occupancy decay](../assets/readme/bright_wait_decay.png)
@@ -76,25 +76,29 @@ physical-repeat interval.
 
 The primary split keeps complete acquisition cycles intact:
 
-- six cycles for training;
-- two cycles for validation;
-- two cycles for final testing.
+- cycles 0–5 for training;
+- cycles 6–7 for validation;
+- cycles 8–9 for final testing.
 
-Every condition is represented by six, two and two independent shots. Fixed
-background templates, emission/threshold parameters and shrinkage parameters
-are fitted on training shots. Validation chooses background/emission and
-physical model structure. The test set is scored once. A separate alternate
-cycle split and within-cycle drift analysis assess time sensitivity.
+Every condition is represented by six, two and two independent shots. Geometry,
+fixed background templates, emission/threshold parameters, and shrinkage
+parameters are fitted on training shots. Validation chooses
+background/emission and physical model structure. The test set is scored once.
+A separate alternate cycle split and within-cycle drift analysis assess time
+sensitivity.
 
 Held-out count likelihood selects predictive descriptions; it does not create
 ground-truth occupancy labels.
 
 The current five-frame latent fit is exploratory and is **not accepted**. Its
 ordinary profile likelihood treats site trajectories as conditionally
-independent and its posterior check does not establish complete-shot
-uncertainty. The public gate therefore fails even though the fitted model
-improves ordinary held-out count likelihood. No latent transition estimate or
-representative posterior trajectory is promoted to a public result.
+independent, and the formal public gate fails because complete-shot clustered
+transition-parameter uncertainty is absent. Synthetic recovery passed its
+declared 35% criterion but retained 28.1% relative rate error, supporting weak
+physical precision. The fitted model's ordinary held-out likelihood
+improvement supports predictive sequence structure, not a precise physical
+transition rate. No latent transition estimate or representative posterior
+trajectory is promoted to a public result.
 
 ## Switch-off interpretation
 
@@ -110,6 +114,22 @@ If residual leakage can only add loss, `tau_switch_off` is a lower bound on a
 fully dark lifetime and `lambda_switch_off` an upper bound on its rate. That
 one-direction assumption is physical context, not identified by these data.
 
+### Endpoint sensitivity
+
+The shared-slope structure was frozen on validation before endpoint checks.
+All four refits succeeded:
+
+| included switch-off holds | variant | `lambda_switch_off` (s^-1) | `tau_switch_off` (s) | later-interval apparent loss |
+|---|---|---:|---:|---:|
+| 0.1–2.1 s | all points | 0.04487 | 22.29 | 13.25% |
+| 0.3–2.1 s | exclude shortest | 0.04642 | 21.54 | 13.27% |
+| 0.1–1.9 s | exclude longest | 0.04861 | 20.57 | 13.02% |
+| 0.3–1.9 s | exclude both | 0.05149 | 19.42 | 12.92% |
+
+The endpoint choice changes the fitted operational rate but not its sign or the
+qualitative apparent-loss conclusion. These are sensitivity refits, not four
+independent estimates.
+
 ## Bright-wait interpretation
 
 The imaging light is commanded on during the swept wait before image 1. The
@@ -123,12 +143,61 @@ A rate extrapolated over 50 ms is compared with apparent inter-readout loss
 using a joint bootstrap. If it is smaller, the allowed conclusion is:
 
 > The simple constant-rate bright-wait model does not explain the full
-> inter-readout loss.
+> apparent inter-readout loss.
 
 The data do not prove a fixed per-exposure or fixed per-pulse mechanism.
 Turn-on/off transients, nonstationary heating, state selection, classification
 error, background, timing accounting and cross-sequence differences remain
 alternatives.
+
+### Selected-model sampling and structural sensitivity
+
+Validation selected the no-floor bright-wait structure. Its apparent gap and
+sampling interval are conditional on that selection:
+
+| bright-wait structure | fit scope | predicted 50 ms apparent loss | observed − predicted apparent-loss gap |
+|---|---|---:|---:|
+| selected no-floor | selected on validation; final development/test workflow frozen | 3.00% | 10.26 percentage points (8.62–11.79 pp complete-shot sampling interval) |
+| unresolved floor alternative | candidate declared on validation; refit on training + validation only | 6.68% | 6.57 percentage points |
+
+The 6.57–10.26 percentage-point span is a model-structure sensitivity range,
+not a confidence interval or total uncertainty. The correct floor-alternative
+gap is 6.57 percentage points because it comes from the reviewed
+development-only refit after the candidate structures were frozen; test data
+were not used. An earlier scratch value of approximately 7.2 percentage points
+came from a different exploratory calculation outside that reviewed fit scope
+and is not a publication result. Both reviewed structures leave a positive
+apparent gap.
+
+### Whole-cycle bootstrap sensitivity
+
+The primary bootstrap resamples complete shots within condition. The separate
+whole-cycle bootstrap preserves dependence shared across conditions in each
+repeated acquisition cycle. All 1,000 dark and 1,000 bright refits succeeded:
+
+| quantity | whole-cycle estimate (95% interval) |
+|---|---:|
+| `lambda_switch_off` | 0.04487 s^-1 (0.02251–0.06514 s^-1) |
+| `tau_switch_off` | 22.29 s (15.35–44.43 s) |
+| `lambda_bright_effective` | 0.6084 s^-1 (0.5649–0.6602 s^-1) |
+| `tau_bright_effective` | 1.64 s (1.51–1.77 s) |
+| predicted 50 ms apparent loss | 3.00% (2.78–3.25%) |
+| later-interval apparent loss | 13.25% (11.84–14.58%) |
+| observed − predicted apparent-loss gap | 10.26 percentage points (8.81–11.61 pp) |
+
+This sensitivity preserves a different dependence structure; it does not
+replace the primary condition-stratified complete-shot sampling interval.
+Sweep value is still perfectly confounded with fixed ascending within-cycle
+position.
+
+### Post-wait control and kappa
+
+Validation selected a flat image-1-to-image-2 apparent-retention model. In that
+selected structure, \(\kappa=0\) is **structurally fixed** rather than estimated
+with a confidence interval. It therefore does not establish a precisely zero
+physical trend. The unselected monotone sensitivity places \(\kappa\) on the
+boundary at 0 with a 0–0.0330 complete-shot sensitivity interval and does not
+resolve a monotone trend. Neither structure identifies heating.
 
 ## Prominent limitations
 
@@ -150,6 +219,11 @@ alternatives.
   imaging globals match.
 - Interval intercepts mix fixed physical loss, classification error and
   sequence transients.
+- The selected no-floor sampling interval is conditional on one model
+  structure; the 6.57–10.26 percentage-point structural range is not a
+  confidence interval.
+- The flat post-wait structure fixes \(\kappa=0\); it does not measure an
+  exactly zero physical trend.
 - Commanded timing is internally corroborated, but no per-frame camera
   timestamp or independent realized-exposure readback is stored.
 

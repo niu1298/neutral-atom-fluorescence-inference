@@ -1,0 +1,77 @@
+{
+  "analysis_code_commit": "18a684dbe2848e434793a51147d5ddd502b12417",
+  "bootstrap_replicates": 1000,
+  "clean_worktree": true,
+  "config_sha256": {
+    "bright_wait": "c359288a6655c229a6b84acf28712bad287e3879bbb4ade3eba784d9b8227844",
+    "paired_readout": "49bf5f9860ab0c0681146dbae380bcba37c20052b2ed346a2bcb144bd219056f",
+    "switch_off_hold": "797bbf77879196cfefee814576fcbef3cf996685e0ea6b077c5260b5bdc026fb"
+  },
+  "dependency_commit": "5309ab28e32adee617b779cd81d3c4fc4966ecc2",
+  "environment": {
+    "packages": {
+      "h5py": "3.16.0",
+      "matplotlib": "3.11.1",
+      "numpy": "2.4.6",
+      "pandas": "3.0.5",
+      "pyarrow": "25.0.0",
+      "scipy": "1.17.1"
+    },
+    "platform": "win32",
+    "python": "3.11.9"
+  },
+  "input_manifest_sha256": {
+    "bright_wait": "8f9c1212fe44e182c97346cf48f414d2c654ff4a10a419009acf74379675fa1b",
+    "paired_readout": "4c3ac46aa9353bd8e8c4c0731af6e0df5655e8315c68d72327abba44952ee1e6",
+    "switch_off_hold": "cf6b88ae3ef332779eacbcf9ad95cfc7875e9329265d6c89aba175716ffe0a2d"
+  },
+  "model_version": "loss-sweeps-v1.0",
+  "public_assets": {
+    "assets/readme/background_drift_sweeps.png": {
+      "bytes": 174008,
+      "sha256": "4626225a2522427649777111a68a29ca94d6cd079c1f95c4e1c0d1b7d20910e2"
+    },
+    "assets/readme/fluorescence_inference_overview.gif": {
+      "bytes": 1988865,
+      "sha256": "b9312b897eb946c8dfe8396c0e4bcdeab137c3c4d4d2e1eb9c22cf4a8e1db86e"
+    },
+    "assets/readme/loss_sweep_overview.png": {
+      "bytes": 211608,
+      "sha256": "bfacb381bc71e0ddcb47a998a4c9a95e000b9b619cd7a8f153712a78242c559a"
+    },
+    "assets/readme/sequence_design.png": {
+      "bytes": 104785,
+      "sha256": "16b780f202bbd5a537116dd40d896819bc071fa18c386800fde74dce3bede57c"
+    }
+  },
+  "reproduction_command": ".\\.venv\\Scripts\\python.exe scripts\\reproduce_all.py",
+  "result": {
+    "path": "reports/loss_sweep_results.json",
+    "scientific_payload_sha256": "6000fd8e7c028d5fd2a869ed075ac917aadc5f55a02c0ddc7ee0697aed5d211a",
+    "sha256": "49b29296494aaf49d46cb36b76bb0d5e56f7cf0e66f50362f17824d2e0313411"
+  },
+  "schema_version": "publication-manifest-v1",
+  "seeds": {
+    "bright_condition_bootstrap": 20260928,
+    "bright_cycle_bootstrap": 20261928,
+    "bright_monotone_control_sensitivity": 20260930,
+    "bright_multistart_diagnostic": 20260928,
+    "dark_condition_bootstrap": 20260828,
+    "dark_cycle_bootstrap": 20261828,
+    "dark_multistart_diagnostic": 20260828,
+    "primary_analysis": 20260728
+  },
+  "validation_inputs": {
+    "background_report_sha256": "f122ac4ec5d61996e16e1e182b6bae8c105275cfbc863619526f850c0f4a9a69",
+    "bright_command_audit_sha256": "8b446c8ac60bbdd6cfd796da47c30b3e1dcec0d9112c142f6adc6c0cd5259e94",
+    "dark_command_audit_sha256": "d58281e839624d08a24cd4efdb27aa46a05337cd4429d3491cbd7f6f76aa6a28",
+    "geometry_report_sha256": "13cfd4120fdb2f9046c785851eb7685d75ad0633cff4fceb061cb96347ecc078"
+  },
+  "verification": {
+    "asset_hash_mode": "exact-same-environment",
+    "scientific_payload_excluded_paths": [
+      "provenance.inference_repository.commit",
+      "provenance.inference_repository.branch"
+    ]
+  }
+}
