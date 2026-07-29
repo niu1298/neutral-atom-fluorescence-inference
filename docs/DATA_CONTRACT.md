@@ -54,8 +54,8 @@ None of them are committed. Regenerate with:
 
 ```bash
 python scripts/export_processed_dataset.py --config configs/paired_100ms.yaml
-python scripts/export_processed_dataset.py --config configs/dark_hold_50ms_20260728_0044.yaml
-python scripts/export_processed_dataset.py --config configs/bright_wait_50ms_20260728_0050.yaml
+python scripts/export_processed_dataset.py --config configs/dark_hold_50ms_20260728_0044.yaml --no-qc
+python scripts/export_processed_dataset.py --config configs/bright_wait_50ms_20260728_0050.yaml --no-qc
 ```
 
 ---
