@@ -35,6 +35,7 @@ import pandas as pd  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from fluorescence_inference import reporting as rp  # noqa: E402
+from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
 
 DEFAULT_RESULTS = Path("reports/loss_sweep_results.json")
@@ -57,6 +58,7 @@ FRAGMENT_FILES = {
 }
 METRICS_V1_MARKER = "loss-sweeps-v1"
 CORE_ASSETS = (
+    "sequence_design.png",
     "loss_sweep_overview.png",
     "dark_hold_retention.png",
     "bright_wait_decay.png",
@@ -640,6 +642,291 @@ def _dark_development_shot_note(results: Mapping[str, Any]) -> str:
     return f"{total} independent development shots"
 
 
+def _sequence_design_inputs(results: Mapping[str, Any]) -> dict[str, Any]:
+    """Read only audited timing facts needed by the public sequence schematic."""
+    timing = _mapping(
+        results.get("timing_evidence"), name="timing_evidence")
+    required_timing = (
+        "passed",
+        "dark_exposure_50ms",
+        "bright_exposure_50ms",
+        "dark_interframe_gaps_match_sweep",
+        "bright_interframe_gap_is_10ms",
+        "compiled_command_state_consistent",
+    )
+    failed = [name for name in required_timing if timing.get(name) is not True]
+    if failed:
+        raise AssetInputError(
+            "sequence design requires passed command-timing evidence: "
+            + ", ".join(failed)
+        )
+    if timing.get("optical_power_readback_available") is not False:
+        raise AssetInputError(
+            "sequence design requires an explicit absent optical-power readback")
+
+    command_audits = _mapping(
+        timing.get("raw_hdf5_command_audits"),
+        name="timing_evidence.raw_hdf5_command_audits",
+    )
+    for key in ("dark_hold", "bright_wait"):
+        audit = _mapping(command_audits.get(key), name=f"{key} command audit")
+        checks = _mapping(audit.get("checks"), name=f"{key} command checks")
+        if (
+            audit.get("passed") is not True
+            or checks.get("dds_constancy_verified_every_shot") is not True
+            or checks.get("switch_states_verified_every_shot") is not True
+        ):
+            raise AssetInputError(
+                f"{key} command audit does not verify switch and DDS programs")
+
+    def dataset(key: str, expected_frames: int) -> dict[str, Any]:
+        audit = _mapping(
+            _dig(results, "dataset_audit", key),
+            name=f"dataset_audit.{key}",
+        )
+        n_frames = _integer(audit.get("n_frames"), name=f"{key} frame count")
+        if n_frames != expected_frames:
+            raise AssetInputError(
+                f"{key} has {n_frames} frames; expected {expected_frames}")
+        sweeps = audit.get("sweep_values_s")
+        if not isinstance(sweeps, Sequence) or isinstance(sweeps, (str, bytes)):
+            raise AssetInputError(f"{key} sweep values must be a sequence")
+        sweep_values = np.asarray(
+            [_number(value, name=f"{key} sweep value") for value in sweeps],
+            dtype=float,
+        )
+        if sweep_values.size < 2:
+            raise AssetInputError(f"{key} needs at least two sweep values")
+        return {
+            "n_shots": _integer(
+                audit.get("n_complete_shots"), name=f"{key} shot count"),
+            "n_frames": n_frames,
+            "exposure_ms": 1000.0 * _single_number(
+                audit.get("commanded_exposure_s"),
+                name=f"{key} commanded exposure",
+            ),
+            "sweep_min_s": float(np.min(sweep_values)),
+            "sweep_max_s": float(np.max(sweep_values)),
+        }
+
+    return {
+        "dark_hold": dataset("dark_hold", 5),
+        "bright_wait": dataset("bright_wait", 2),
+        "bright_gap_ms": 10.0,
+        "optical_power_readback_available": False,
+        "dds_commands_verified_configured": True,
+    }
+
+
+def _sequence_box(
+    ax,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    text: str,
+    facecolor: str,
+    edgecolor: str,
+    fontsize: float = 8.5,
+) -> None:
+    _safe_text(text, "sequence-design label")
+    patch = FancyBboxPatch(
+        (x, y),
+        width,
+        height,
+        boxstyle="round,pad=0.012,rounding_size=0.018",
+        linewidth=1.2,
+        facecolor=facecolor,
+        edgecolor=edgecolor,
+    )
+    ax.add_patch(patch)
+    ax.text(
+        x + 0.5 * width,
+        y + 0.5 * height,
+        text,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        color=rp.INK,
+        linespacing=1.15,
+    )
+
+
+def _sequence_arrow(ax, start: float, end: float, y: float = 0.60) -> None:
+    ax.annotate(
+        "",
+        xy=(end, y),
+        xytext=(start, y),
+        arrowprops={"arrowstyle": "-|>", "color": rp.MUTED, "lw": 1.0},
+        zorder=0,
+    )
+
+
+def make_sequence_design(
+    results: Mapping[str, Any], output: Path
+) -> tuple[dict[str, Any], list[str]]:
+    """Render command-level timing without implying measured optical darkness."""
+    design = _sequence_design_inputs(results)
+    dark = design["dark_hold"]
+    bright = design["bright_wait"]
+    fig, axes = rp.plt.subplots(
+        2, 1, figsize=(12.0, 6.0), layout="constrained")
+    for ax in axes:
+        ax.set_xlim(0.0, 1.0)
+        ax.set_ylim(0.0, 1.0)
+        ax.axis("off")
+
+    dark_ax = axes[0]
+    dark_title = "A  Five-frame switch-off-hold sequence"
+    dark_subtitle = (
+        f"{dark['n_shots']} shots \N{MIDDLE DOT} {dark['n_frames']} frames "
+        f"\N{MIDDLE DOT} {dark['exposure_ms']:.0f} ms per exposure "
+        f"\N{MIDDLE DOT} swept hold t = {dark['sweep_min_s']:.1f}"
+        f"\N{EN DASH}{dark['sweep_max_s']:.1f} s"
+    )
+    dark_ax.text(
+        0.01, 0.94, _safe_text(dark_title, "sequence-design title"),
+        ha="left", va="top", fontsize=13, fontweight="bold", color=rp.INK)
+    dark_ax.text(
+        0.01, 0.82, _safe_text(dark_subtitle, "sequence-design subtitle"),
+        ha="left", va="top", fontsize=9.2, color=rp.MUTED)
+    frame_x = np.linspace(0.04, 0.84, dark["n_frames"])
+    frame_width = 0.10
+    for index, x in enumerate(frame_x):
+        _sequence_box(
+            dark_ax,
+            x=float(x),
+            y=0.48,
+            width=frame_width,
+            height=0.21,
+            text=f"frame {index + 1}\n{dark['exposure_ms']:.0f} ms",
+            facecolor="#e7f1f8",
+            edgecolor=rp.ACCENT,
+        )
+        if index < len(frame_x) - 1:
+            gap_start = float(x + frame_width + 0.012)
+            gap_end = float(frame_x[index + 1] - 0.012)
+            _sequence_arrow(dark_ax, x + frame_width, frame_x[index + 1])
+            _sequence_box(
+                dark_ax,
+                x=gap_start,
+                y=0.505,
+                width=gap_end - gap_start,
+                height=0.16,
+                text="switches OFF\nhold t",
+                facecolor=rp.SOFT,
+                edgecolor=rp.ACCENT_2,
+                fontsize=7.7,
+            )
+    _sequence_box(
+        dark_ax,
+        x=0.04,
+        y=0.13,
+        width=0.90,
+        height=0.12,
+        text="DDS commands remain configured throughout",
+        facecolor="#fff1e8",
+        edgecolor=rp.ACCENT_2,
+        fontsize=9.0,
+    )
+
+    bright_ax = axes[1]
+    bright_title = "B  Two-frame bright-wait sequence"
+    bright_subtitle = (
+        f"{bright['n_shots']} shots \N{MIDDLE DOT} {bright['n_frames']} frames "
+        f"\N{MIDDLE DOT} {bright['exposure_ms']:.0f} ms per exposure "
+        f"\N{MIDDLE DOT} swept bright wait w = {bright['sweep_min_s']:.1f}"
+        f"\N{EN DASH}{bright['sweep_max_s']:.1f} s"
+    )
+    bright_ax.text(
+        0.01, 0.94, _safe_text(bright_title, "sequence-design title"),
+        ha="left", va="top", fontsize=13, fontweight="bold", color=rp.INK)
+    bright_ax.text(
+        0.01, 0.82, _safe_text(bright_subtitle, "sequence-design subtitle"),
+        ha="left", va="top", fontsize=9.2, color=rp.MUTED)
+    _sequence_box(
+        bright_ax,
+        x=0.04,
+        y=0.48,
+        width=0.34,
+        height=0.21,
+        text="switches ON \N{MIDDLE DOT} un-imaged\nbright wait w",
+        facecolor="#fff1e8",
+        edgecolor=rp.ACCENT_2,
+        fontsize=8.7,
+    )
+    _sequence_arrow(bright_ax, 0.38, 0.47)
+    _sequence_box(
+        bright_ax,
+        x=0.47,
+        y=0.48,
+        width=0.12,
+        height=0.21,
+        text=f"frame 1\n{bright['exposure_ms']:.0f} ms",
+        facecolor="#e7f1f8",
+        edgecolor=rp.ACCENT,
+    )
+    _sequence_arrow(bright_ax, 0.59, 0.73)
+    _sequence_box(
+        bright_ax,
+        x=0.61,
+        y=0.505,
+        width=0.10,
+        height=0.16,
+        text=f"switches OFF\n{design['bright_gap_ms']:.0f} ms",
+        facecolor=rp.SOFT,
+        edgecolor=rp.ACCENT_2,
+        fontsize=7.8,
+    )
+    _sequence_box(
+        bright_ax,
+        x=0.73,
+        y=0.48,
+        width=0.12,
+        height=0.21,
+        text=f"frame 2\n{bright['exposure_ms']:.0f} ms",
+        facecolor="#e7f1f8",
+        edgecolor=rp.ACCENT,
+    )
+    _sequence_box(
+        bright_ax,
+        x=0.04,
+        y=0.13,
+        width=0.90,
+        height=0.12,
+        text="DDS commands remain configured throughout",
+        facecolor="#fff1e8",
+        edgecolor=rp.ACCENT_2,
+        fontsize=9.0,
+    )
+
+    note = (
+        "Command audit verifies programmed switch and DDS states, not optical "
+        "power. Switch-off is not verified optical darkness."
+    )
+    fig.text(
+        0.005,
+        -0.015,
+        _safe_text(note, "sequence-design footnote"),
+        ha="left",
+        va="top",
+        fontsize=8.4,
+        color=rp.MUTED,
+    )
+    visible = [
+        dark_title,
+        dark_subtitle,
+        bright_title,
+        bright_subtitle,
+        "switches OFF",
+        "switches ON \N{MIDDLE DOT} un-imaged",
+        "DDS commands remain configured throughout",
+        note,
+    ]
+    return _save(fig, output), visible
+
+
 def make_overview(results: Mapping[str, Any], output: Path) -> tuple[dict[str, Any], list[str]]:
     dark_curve, dark_band, fixed = _dark_inputs(results)
     bright_curve, bright_band, control_curve, control_band = _bright_inputs(results)
@@ -920,6 +1207,58 @@ def _optional_background_curve(results: Mapping[str, Any]) -> pd.DataFrame | Non
     return None
 
 
+def _relative_background_curve(curve: pd.DataFrame) -> pd.DataFrame:
+    """Translate each frame to its own shortest-point estimate.
+
+    The source frame is copied. Marginal cluster intervals are translated by
+    the same reference estimate; without joint bootstrap draws they must not be
+    interpreted as confidence intervals for a paired difference.
+    """
+    required = {
+        "dataset",
+        "frame_index",
+        "sweep_value_s",
+        "estimate",
+        "lower",
+        "upper",
+    }
+    missing = sorted(required - set(curve.columns))
+    if missing:
+        raise AssetInputError(
+            f"background curve cannot be referenced; missing {missing}")
+    out = curve.copy(deep=True)
+    references: list[dict[str, Any]] = []
+    for (dataset, frame), block in out.groupby(
+        ["dataset", "frame_index"], observed=True, sort=False
+    ):
+        shortest = float(block["sweep_value_s"].min())
+        baseline = block.loc[np.isclose(block["sweep_value_s"], shortest)]
+        if len(baseline) != 1:
+            raise AssetInputError(
+                "background curve must have one shortest point per dataset/frame")
+        references.append(
+            {
+                "dataset": dataset,
+                "frame_index": frame,
+                "_reference_sweep_value_s": shortest,
+                "_reference_estimate": float(baseline.iloc[0]["estimate"]),
+            }
+        )
+    reference = pd.DataFrame(references)
+    out = out.merge(
+        reference,
+        on=["dataset", "frame_index"],
+        how="left",
+        validate="many_to_one",
+    )
+    for column in ("estimate", "lower", "upper"):
+        out[column] = (
+            out[column].to_numpy(float)
+            - out["_reference_estimate"].to_numpy(float)
+        )
+    return out
+
+
 def _background_endpoint_rows(
     results: Mapping[str, Any], dataset_key: str
 ) -> pd.DataFrame:
@@ -1019,6 +1358,8 @@ def make_background_figure(
     results: Mapping[str, Any], output: Path
 ) -> tuple[dict[str, Any], list[str]]:
     richer = _optional_background_curve(results)
+    if richer is not None:
+        richer = _relative_background_curve(richer)
     fig, axes = rp.plt.subplots(
         1, 2, figsize=(11.8, 4.9), sharey=True, layout="constrained"
     )
@@ -1043,6 +1384,7 @@ def make_background_figure(
                 raise AssetInputError(
                     f"background curve for {key} does not use the selected method"
                 )
+            ax.axhline(0.0, color=rp.MUTED, lw=1.0, ls=":")
             for frame, block in part.groupby("frame_index", observed=True, sort=True):
                 block = block.sort_values("sweep_value_s", kind="stable")
                 y = block["estimate"].to_numpy(float)
@@ -1063,15 +1405,21 @@ def make_background_figure(
                     label=f"frame {int(frame) + 1}",
                 )
             ax.set_title(_safe_text(title, "background title"), loc="left")
-            ax.set_xlabel("sweep value (s)")
-            ax.set_ylabel("site-free background (ROI counts)")
+            x_label = (
+                "switch-off hold (s)"
+                if key == "dark_hold"
+                else "prior bright wait (s)"
+            )
+            y_label = "change from shortest point (ROI counts)"
+            ax.set_xlabel(x_label)
+            ax.set_ylabel(y_label)
             ax.legend(ncol=2)
             _axis_note(ax, _shot_note(part))
             visible.extend(
                 [
                     title,
-                    "sweep value (s)",
-                    "site-free background (ROI counts)",
+                    x_label,
+                    y_label,
                     _shot_note(part),
                     *[
                         f"frame {int(frame) + 1}"
@@ -1079,7 +1427,12 @@ def make_background_figure(
                     ],
                 ]
             )
-        note = "Points show 95% complete-shot cluster intervals."
+        note = (
+            "Each frame is zeroed to its own shortest sweep point. Error bars "
+            "are the original pointwise 95% complete-shot intervals translated "
+            "by that reference estimate; shared-reference covariance is "
+            "unavailable."
+        )
     else:
         for ax, (key, title) in zip(axes, datasets):
             part = _background_endpoint_rows(results, key)
@@ -1128,7 +1481,10 @@ def make_background_figure(
             "sweep point. The result JSON does not provide clustered intervals."
         )
     fig.suptitle(
-        _safe_text("Background drift across loss sweeps", "background suptitle"),
+        _safe_text(
+            "Site-free background change across loss sweeps",
+            "background suptitle",
+        ),
         fontsize=15,
         fontweight="bold",
     )
@@ -1142,7 +1498,7 @@ def make_background_figure(
         color=rp.MUTED,
     )
     return _save(fig, output), [
-        "Background drift across loss sweeps",
+        "Site-free background change across loss sweeps",
         *visible,
         note,
     ]
@@ -1731,57 +2087,63 @@ def _validation_value(
 
 
 def render_sweep_validation(results: Mapping[str, Any]) -> str:
-    """Create the two-run validation table and its design caveats."""
-    rows = (
-        ("Geometry gate", "geometry_gate"),
-        ("Training-shot lattice pitch", "pitch"),
-        ("Early/late registered shift, median / max", "early_late"),
-        ("Shortest/longest rigid-shift sensitivity", "short_long"),
-        ("Selected background", "background"),
-        ("Site-free residual structure, selected", "residual"),
-        ("Annuli intersecting neighbouring-site masks", "annulus"),
-        ("Site-free first-frame pedestal", "pedestal"),
+    """Create the concise README status paragraph from reviewed gates."""
+    timing_passed = _dig(results, "timing_evidence", "passed") is True
+    geometry_passed = all(
+        _dig(results, "geometry_evidence", dataset, "gate", "passed") is True
+        for dataset in ("dark_hold", "bright_wait")
     )
-    lines = [
-        "| Gate | Switch-off hold | Bright wait |",
-        "|---|---:|---:|",
+    backgrounds = [
+        _friendly_background(
+            _dig(
+                results,
+                "background_evidence",
+                dataset,
+                "selection",
+                "selected_method",
+            )
+        )
+        for dataset in ("dark_hold", "bright_wait")
     ]
-    for label, field in rows:
-        lines.append(
-            f"| {label} "
-            f"| {_md_cell(_validation_value(results, 'dark_hold', field), name=label)} "
-            f"| {_md_cell(_validation_value(results, 'bright_wait', field), name=label)} |"
+    split_frozen = all(
+        bool(
+            _dig(
+                results,
+                "dataset_audit",
+                dataset,
+                "split_definition",
+                "strategy",
+            )
+        )
+        for dataset in ("dark_hold", "bright_wait")
+    )
+    if not (timing_passed and geometry_passed and split_frozen):
+        raise AssetInputError(
+            "README status cannot report passed sweep timing, geometry, and "
+            "split gates"
         )
 
-    cross = _mapping(
-        _dig(results, "geometry_evidence", "cross_run"),
-        name="geometry_evidence.cross_run",
+    background_text = (
+        f"{backgrounds[0]} for both sweeps"
+        if backgrounds[0] == backgrounds[1]
+        else f"{backgrounds[0]} and {backgrounds[1]}, respectively"
     )
-    shift = _number(
-        _dig(cross, "wide_radius_matching", "bulk_shift", "magnitude_px"),
-        name="cross-run coordinate shift",
-    )
-    interpretation = _md_cell(
-        cross.get("interpretation"), name="cross-run geometry interpretation"
-    )
-    order_caveat = _md_cell(
-        results.get("acquisition_order_caveat"), name="acquisition-order caveat"
-    )
-    comparison = _mapping(
-        results.get("cross_dataset_comparison"), name="cross_dataset_comparison"
-    )
-    pooling = _md_cell(
-        comparison.get("pooling_reason"), name="cross-run pooling reason"
-    )
-    lines.extend(
-        [
-            "",
-            f"The fitted grids differ by {shift:.2f} px. {interpretation} "
-            f"The sequences are not pooled: {pooling}",
-            "",
-            f"**Acquisition-order limitation.** {order_caveat}",
-        ]
-    )
+    latent = _mapping(results.get("latent_state"), name="latent_state")
+    if _latent_public_gate_passed(latent):
+        latent_text = "The latent-state public acceptance gate passes."
+    else:
+        latent_text = (
+            "The exploratory latent-state model is not accepted as a public "
+            "result because complete-shot clustered uncertainty for its "
+            "transition parameters is unavailable."
+        )
+    lines = [
+        "Both sweep timing audits, independent per-run geometry gates, the "
+        f"selected site-free background ({background_text}), and frozen "
+        "complete-shot splits pass. The two runs remain separate because they "
+        "are distinct acquisitions with different geometry and background "
+        f"trajectories. {latent_text}",
+    ]
     return _fragment(lines)
 
 
@@ -1888,8 +2250,8 @@ def _model_rate_lines(
     ]
 
 
-def render_loss_sweep_results(results: Mapping[str, Any]) -> str:
-    """Create the reader-facing V1 results with claim gates enforced."""
+def render_readme_metrics_v1(results: Mapping[str, Any]) -> str:
+    """Create the detailed generated V1 metrics with claim gates enforced."""
     lines = [
         "**Held-out count baselines.** Model choice used validation shots; the "
         "test metrics below were scored once.",
@@ -2059,6 +2421,108 @@ def render_loss_sweep_results(results: Mapping[str, Any]) -> str:
     return _fragment(lines)
 
 
+def _headline_ci(
+    value: Any,
+    *,
+    name: str,
+    digits: int,
+    scale: float = 1.0,
+    suffix: str,
+) -> str:
+    record = _mapping(value, name=name)
+    estimate = scale * _number(record.get("estimate"), name=f"{name} estimate")
+    lower = scale * _number(record.get("lower"), name=f"{name} lower")
+    upper = scale * _number(record.get("upper"), name=f"{name} upper")
+    if not lower <= estimate <= upper:
+        raise AssetInputError(
+            f"{name} must satisfy lower <= estimate <= upper"
+        )
+    return (
+        f"{estimate:.{digits}f}{suffix} "
+        f"({lower:.{digits}f}\N{EN DASH}{upper:.{digits}f}{suffix})"
+    )
+
+
+def render_loss_sweep_results(results: Mapping[str, Any]) -> str:
+    """Create the compact README headline table from gated clustered results."""
+    dark = _mapping(
+        _dig(results, "dark_hold", "operational_model"),
+        name="dark_hold.operational_model",
+    )
+    bright = _mapping(
+        _dig(results, "bright_wait", "effective_model"),
+        name="bright_wait.effective_model",
+    )
+    cross = _mapping(
+        results.get("cross_dataset_comparison"),
+        name="cross_dataset_comparison",
+    )
+
+    dark_ready = (
+        dark.get("public_rate_claim_gate_passed") is True
+        and dark.get("rate_resolved") is True
+    )
+    bright_ready = (
+        bright.get("public_rate_claim_gate_passed") is True
+        and bright.get("rate_resolved") is True
+    )
+    comparison_ready = cross.get("public_comparison_gate_passed") is True
+
+    dark_value = (
+        _headline_ci(
+            dark.get("tau_switch_off"),
+            name="tau_switch_off",
+            digits=2,
+            suffix=" s",
+        )
+        if dark_ready
+        else "not reported; public rate gate failed"
+    )
+    bright_value = (
+        _headline_ci(
+            bright.get("tau_bright_effective"),
+            name="tau_bright_effective",
+            digits=2,
+            suffix=" s",
+        )
+        if bright_ready
+        else "not reported; public rate gate failed"
+    )
+    gap_value = (
+        _headline_ci(
+            cross.get("observed_minus_predicted_loss"),
+            name="observed-minus-predicted loss",
+            digits=2,
+            scale=100.0,
+            suffix=" percentage points",
+        )
+        if comparison_ready
+        else "not reported; public comparison gate failed"
+    )
+
+    lines = [
+        "| headline quantity | estimate (95% complete-shot cluster CI) |",
+        "|---|---:|",
+        f"| `tau_switch_off` | {dark_value} |",
+        f"| `tau_bright_effective` | {bright_value} |",
+        "| observed \N{MINUS SIGN} predicted 50 ms apparent-loss gap "
+        f"| {gap_value} |",
+        "",
+    ]
+    if comparison_ready:
+        lines.append(
+            "The simple constant-rate bright-wait model does not explain the "
+            "full apparent inter-readout loss. This does not establish a fixed "
+            "per-pulse mechanism."
+        )
+    else:
+        lines.append(
+            "The cross-dataset comparison gate did not pass; no mechanism "
+            "comparison is reported."
+        )
+    return _fragment(lines)
+
+
 def build_publication_fragments(
     results: Mapping[str, Any], v0_qc: Mapping[str, Any]
 ) -> dict[str, str]:
@@ -2072,7 +2536,7 @@ def build_publication_fragments(
         [
             "### V1 held-out loss-sweep inference",
             "",
-            fragments["loss-sweep-results"].rstrip(),
+            render_readme_metrics_v1(results).rstrip(),
         ]
     )
     for name, text in fragments.items():
@@ -2252,6 +2716,7 @@ def generate_assets(results_path: Path, output_dir: Path) -> dict[str, Any]:
         ("dark_hold_retention.png", make_dark_figure),
         ("bright_wait_decay.png", make_bright_figure),
         ("background_drift_sweeps.png", make_background_figure),
+        ("sequence_design.png", make_sequence_design),
     )
     for filename, builder in builders:
         info, labels = builder(results, output_dir / filename)
@@ -2305,6 +2770,14 @@ def generate_assets(results_path: Path, output_dir: Path) -> dict[str, Any]:
         "optional_assets_skipped": skipped,
         "visible_text": visible_text,
         "selection_rules": {
+            "sequence_design": (
+                "command-level schematic from audited frame, exposure, sweep, "
+                "switch-command, and DDS-command evidence"
+            ),
+            "background_reference": (
+                "within each dataset and frame, subtract the shortest-sweep "
+                "estimate; translate each marginal interval by the same estimate"
+            ),
             "latent_representative": (
                 representative.get("selection_rule")
                 if representative is not None

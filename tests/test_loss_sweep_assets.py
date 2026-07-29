@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pandas as pd
 from PIL import Image
 import pytest
 
@@ -217,6 +218,31 @@ def _result_fixture() -> dict:
     return {
         "analysis_version": "loss-sweeps-test",
         "independent_experimental_unit": "shot",
+        "timing_evidence": {
+            "passed": True,
+            "dark_exposure_50ms": True,
+            "bright_exposure_50ms": True,
+            "dark_interframe_gaps_match_sweep": True,
+            "bright_interframe_gap_is_10ms": True,
+            "compiled_command_state_consistent": True,
+            "optical_power_readback_available": False,
+            "raw_hdf5_command_audits": {
+                "dark_hold": {
+                    "passed": True,
+                    "checks": {
+                        "dds_constancy_verified_every_shot": True,
+                        "switch_states_verified_every_shot": True,
+                    },
+                },
+                "bright_wait": {
+                    "passed": True,
+                    "checks": {
+                        "dds_constancy_verified_every_shot": True,
+                        "switch_states_verified_every_shot": True,
+                    },
+                },
+            },
+        },
         "acquisition_order_caveat": (
             "Conditions repeat in fixed ascending order within every cycle. "
             "Sweep value is confounded with within-cycle position."
@@ -321,6 +347,9 @@ def _result_fixture() -> dict:
                 "commanded_exposure_s": [0.05],
                 "sweep_values_s": dark_times,
                 "condition_split_counts": condition_split_counts(dark_times),
+                "split_definition": {
+                    "strategy": "chronological_cycle_60_20_20"
+                },
             },
             "bright_wait": {
                 "n_complete_shots": 100,
@@ -329,6 +358,9 @@ def _result_fixture() -> dict:
                 "commanded_exposure_s": [0.05],
                 "sweep_values_s": bright_times,
                 "condition_split_counts": condition_split_counts(bright_times),
+                "split_definition": {
+                    "strategy": "chronological_cycle_60_20_20"
+                },
             },
         },
         "geometry_evidence": {
@@ -431,6 +463,7 @@ def test_loss_sweep_assets_are_deterministic_and_have_real_content(scratch):
     result_path.write_text(
         json.dumps(_result_fixture(), sort_keys=True), encoding="utf-8"
     )
+    source_hash = _sha(result_path)
     out_a, out_b = scratch / "a", scratch / "b"
     first = assets.generate_assets(result_path, out_a)
     second = assets.generate_assets(result_path, out_b)
@@ -458,10 +491,30 @@ def test_loss_sweep_assets_are_deterministic_and_have_real_content(scratch):
     assert not first["optional_assets_skipped"]
     overview_text = first["visible_text"]["loss_sweep_overview.png"]
     assert "88 independent development shots" in overview_text
+    sequence_text = first["visible_text"]["sequence_design.png"]
+    assert "DDS commands remain configured throughout" in sequence_text
+    assert any("swept hold t = 0.1–2.1 s" in text for text in sequence_text)
+    assert any(
+        "swept bright wait w = 0.1–1.9 s" in text
+        for text in sequence_text
+    )
+    assert any(
+        "Switch-off is not verified optical darkness." in text
+        for text in sequence_text
+    )
     assert (
-        "Points show 95% complete-shot cluster intervals."
+        "Each frame is zeroed to its own shortest sweep point. Error bars are "
+        "the original pointwise 95% complete-shot intervals translated by that "
+        "reference estimate; shared-reference covariance is unavailable."
         in first["visible_text"]["background_drift_sweeps.png"]
     )
+    assert first["selection_rules"]["sequence_design"].startswith(
+        "command-level schematic"
+    )
+    assert "shortest-sweep estimate" in first["selection_rules"][
+        "background_reference"
+    ]
+    assert _sha(result_path) == source_hash
     visible_blob = json.dumps(first["visible_text"]).lower()
     assert "fidelity" not in visible_blob
     assert "fixed per-exposure" not in visible_blob
@@ -518,6 +571,49 @@ def test_selected_background_curve_uses_cluster_bounds_and_template_column():
     assert set(rows["background_column"]) == {"background_template_offset"}
     np.testing.assert_allclose(rows["upper"] - rows["lower"], 8.0)
     assert set(rows["n_independent_shots"]) == {10}
+
+
+def test_background_curve_is_referenced_per_frame_without_mutating_source():
+    rows = assets._optional_background_curve(_result_fixture())
+    assert rows is not None
+    original = rows.copy(deep=True)
+
+    relative = assets._relative_background_curve(rows)
+
+    pd.testing.assert_frame_equal(rows, original)
+    shortest = relative.loc[
+        relative.groupby(
+            ["dataset", "frame_index"], observed=True
+        )["sweep_value_s"].transform("min").eq(relative["sweep_value_s"])
+    ]
+    np.testing.assert_allclose(shortest["estimate"], 0.0)
+    np.testing.assert_allclose(relative["upper"] - relative["lower"], 8.0)
+    for _, block in relative.groupby(
+        ["dataset", "frame_index"], observed=True
+    ):
+        expected = -7.0 * (
+            block["sweep_value_s"].to_numpy(float)
+            - float(block["sweep_value_s"].min())
+        )
+        np.testing.assert_allclose(block["estimate"], expected)
+
+
+def test_sequence_design_requires_command_audit_and_no_optical_readback():
+    result = _result_fixture()
+    result["timing_evidence"]["optical_power_readback_available"] = True
+    with pytest.raises(
+        assets.AssetInputError, match="absent optical-power readback"
+    ):
+        assets._sequence_design_inputs(result)
+
+    result = _result_fixture()
+    result["timing_evidence"]["raw_hdf5_command_audits"]["dark_hold"][
+        "checks"
+    ]["dds_constancy_verified_every_shot"] = False
+    with pytest.raises(
+        assets.AssetInputError, match="does not verify switch and DDS programs"
+    ):
+        assets._sequence_design_inputs(result)
 
 
 def test_generator_requires_reviewed_curve_records_and_reads_no_dataset(scratch):
@@ -595,17 +691,25 @@ def test_publication_fragments_are_deterministic_source_backed_and_private():
     assert "| paired readout | 101 |" not in changed_matrix
 
     validation = first["sweep-validation"]
-    assert "11.205 px" in validation
-    assert "11.09 px" in validation
-    assert "fixed ascending order" in validation
+    assert "independent per-run geometry gates" in validation
+    assert "template + frame offset for both sweeps" in validation
+    assert "different geometry and background trajectories" in validation
+    assert "latent-state public acceptance gate passes" in validation
+    assert "11.205 px" not in validation
     results = first["loss-sweep-results"]
-    assert "6/2/2 per condition; 66/22/22 total" in results
-    assert "no post-wait retention trend was resolved" in results
-    assert "does not prove a fixed per-pulse cost" in results
-    assert "not empirical fidelity" in results
+    assert "| `tau_switch_off` |" in results
+    assert "| `tau_bright_effective` |" in results
+    assert "observed − predicted 50 ms apparent-loss gap" in results
+    assert "does not establish a fixed per-pulse mechanism" in results
+    assert "Held-out count baselines" not in results
     assert first["readme-metrics-v1"].startswith(
         "### V1 held-out loss-sweep inference"
     )
+    assert "6/2/2 per condition; 66/22/22 total" in first["readme-metrics-v1"]
+    assert "no post-wait retention trend was resolved" in first[
+        "readme-metrics-v1"
+    ]
+    assert "not empirical fidelity" in first["readme-metrics-v1"]
     for name, fragment in first.items():
         assert_public_safe(fragment, f"test {name} fragment")
         assert "C:\\" not in fragment

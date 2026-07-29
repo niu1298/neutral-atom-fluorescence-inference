@@ -2,10 +2,10 @@
   "analysis_version": "loss-sweeps-v1.0",
   "assets": {
     "background_drift_sweeps.png": {
-      "bytes": 132439,
+      "bytes": 175332,
       "height_px": 789,
       "path": "background_drift_sweeps.png",
-      "sha256": "2e1e4beb194ae1666adae3817fa4bfaaa234bea6c8e968cf4584a0b912d6bba6",
+      "sha256": "f88c53a6a98c206cfbddd5473b47ce0f08edcd2bfc09e7222040a63e41f9725b",
       "width_px": 1787
     },
     "bright_wait_decay.png": {
@@ -35,6 +35,13 @@
       "path": "per_site_retention_map.png",
       "sha256": "39a40901eeba16f609ba4e16ff38d6a00633d420daddba353481264b5be306d3",
       "width_px": 1871
+    },
+    "sequence_design.png": {
+      "bytes": 112795,
+      "height_px": 955,
+      "path": "sequence_design.png",
+      "sha256": "5a71b7cc11a82059d80740a443adc4624b21fa529ddcbf16791ae84daba3b505",
+      "width_px": 1817
     }
   },
   "generated_by": "scripts/generate_loss_sweep_assets.py",
@@ -49,17 +56,19 @@
     "user_or_machine_identifiers_visible": false
   },
   "selection_rules": {
+    "background_reference": "within each dataset and frame, subtract the shortest-sweep estimate; translate each marginal interval by the same estimate",
     "latent_representative": null,
-    "per_site": "all supplied sites; one predeclared held-out value per site"
+    "per_site": "all supplied sites; one predeclared held-out value per site",
+    "sequence_design": "command-level schematic from audited frame, exposure, sweep, switch-command, and DDS-command evidence"
   },
   "source_file": "loss_sweep_results.json",
   "source_sha256": "f4c2cb9aa048a2c81e311820073a532226dce7334b20d3b97032b0fa5b2d15e1",
   "visible_text": {
     "background_drift_sweeps.png": [
-      "Background drift across loss sweeps",
+      "Site-free background change across loss sweeps",
       "Switch-off sweep",
-      "sweep value (s)",
-      "site-free background (ROI counts)",
+      "switch-off hold (s)",
+      "change from shortest point (ROI counts)",
       "10 independent shots per point",
       "frame 1",
       "frame 2",
@@ -67,12 +76,12 @@
       "frame 4",
       "frame 5",
       "Bright-wait sweep",
-      "sweep value (s)",
-      "site-free background (ROI counts)",
+      "prior bright wait (s)",
+      "change from shortest point (ROI counts)",
       "10 independent shots per point",
       "frame 1",
       "frame 2",
-      "Points show 95% complete-shot cluster intervals."
+      "Each frame is zeroed to its own shortest sweep point. Error bars are the original pointwise 95% complete-shot intervals translated by that reference estimate; shared-reference covariance is unavailable."
     ],
     "bright_wait_decay.png": [
       "Bright-wait occupancy",
@@ -127,6 +136,16 @@
       "Per-site apparent retention",
       "Held-out apparent retention and complete-shot 95% interval width; fixed color scales are 0 to 1 and 0 to 0.5. 4\u201321 independent test shots per site. Sites describe heterogeneity, not independent experimental repeats.",
       "95% cluster interval width"
+    ],
+    "sequence_design.png": [
+      "A  Five-frame switch-off-hold sequence",
+      "110 shots \u00b7 5 frames \u00b7 50 ms per exposure \u00b7 swept hold t = 0.1\u20132.1 s",
+      "B  Two-frame bright-wait sequence",
+      "100 shots \u00b7 2 frames \u00b7 50 ms per exposure \u00b7 swept bright wait w = 0.1\u20131.9 s",
+      "switches OFF",
+      "switches ON \u00b7 un-imaged",
+      "DDS commands remain configured throughout",
+      "Command audit verifies programmed switch and DDS states, not optical power. Switch-off is not verified optical darkness."
     ]
   }
 }

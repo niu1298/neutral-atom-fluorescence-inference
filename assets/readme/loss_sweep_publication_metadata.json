@@ -2,10 +2,10 @@
   "analysis_version": "loss-sweeps-v1.0",
   "assets": {
     "background_drift_sweeps.png": {
-      "bytes": 132439,
+      "bytes": 175332,
       "height_px": 789,
       "path": "background_drift_sweeps.png",
-      "sha256": "2e1e4beb194ae1666adae3817fa4bfaaa234bea6c8e968cf4584a0b912d6bba6",
+      "sha256": "f88c53a6a98c206cfbddd5473b47ce0f08edcd2bfc09e7222040a63e41f9725b",
       "width_px": 1787
     },
     "bright_wait_decay.png": {
@@ -35,6 +35,13 @@
       "path": "per_site_retention_map.png",
       "sha256": "39a40901eeba16f609ba4e16ff38d6a00633d420daddba353481264b5be306d3",
       "width_px": 1871
+    },
+    "sequence_design.png": {
+      "bytes": 112795,
+      "height_px": 955,
+      "path": "sequence_design.png",
+      "sha256": "5a71b7cc11a82059d80740a443adc4624b21fa529ddcbf16791ae84daba3b505",
+      "width_px": 1817
     }
   },
   "fragments": {
@@ -44,9 +51,9 @@
       "sha256": "017408c32c1a2c8d3ff53486123ab764115c8f2995729ddf5dcab5bb89cfd428"
     },
     "loss-sweep-results": {
-      "bytes": 2338,
+      "bytes": 438,
       "path": "loss_sweep_results.md",
-      "sha256": "c6eefc073511dc113b7ad5fa13897163e26869bc52b8d8c44113a07e92d57779"
+      "sha256": "e8fe0da0082b764849309be3c1ee3905b81328c4e859a2c51c96ab4db00e35bb"
     },
     "readme-metrics-v1": {
       "bytes": 2376,
@@ -54,9 +61,9 @@
       "sha256": "992828089a539420f94e2270f0b19b45c4f73b4f975676ec94f621682dac49d6"
     },
     "sweep-validation": {
-      "bytes": 1176,
+      "bytes": 458,
       "path": "sweep_validation.md",
-      "sha256": "d94637f8244bdfa04f7574185039177f3907b4ac728be65557c97531449a80dc"
+      "sha256": "32afadefe528ce1c502d2aeebf6eb198859812899b73445533a73d5ab6948608"
     }
   },
   "generated_by": "scripts/generate_loss_sweep_assets.py",
@@ -65,7 +72,7 @@
     "mode": "published",
     "readme_metrics_sha256": "040433bfc8a4f3406dbe2e6fdd4206f6f4cb13fc8941ed447d8f0d1e50ce8bfd",
     "readme_metrics_updated": false,
-    "readme_sha256": "28adab3f78a4931f0295c5d02cf55a937181e4b534d5bff5e216560c925f0136",
+    "readme_sha256": "7533992262bacc57934ed45c6e91402d90374091c925e608aaa21ac1a2418a5f",
     "readme_updated": false
   },
   "optional_assets_skipped": {
@@ -78,19 +85,21 @@
     "user_or_machine_identifiers_visible": false
   },
   "selection_rules": {
+    "background_reference": "within each dataset and frame, subtract the shortest-sweep estimate; translate each marginal interval by the same estimate",
     "latent_representative": null,
-    "per_site": "all supplied sites; one predeclared held-out value per site"
+    "per_site": "all supplied sites; one predeclared held-out value per site",
+    "sequence_design": "command-level schematic from audited frame, exposure, sweep, switch-command, and DDS-command evidence"
   },
   "source_file": "loss_sweep_results.json",
   "source_sha256": "f4c2cb9aa048a2c81e311820073a532226dce7334b20d3b97032b0fa5b2d15e1",
   "v0_qc_source_file": "qc_summary.json",
-  "v0_qc_source_sha256": "876e6d7e8cb40c2da2a3246dbecc5035f4ed84cfd2c965d2a871408c5a9b519b",
+  "v0_qc_source_sha256": "2efd8ad0e00c12b2a98f5424393bbf8b42eca01f4e083e6337fe85479b4294c8",
   "visible_text": {
     "background_drift_sweeps.png": [
-      "Background drift across loss sweeps",
+      "Site-free background change across loss sweeps",
       "Switch-off sweep",
-      "sweep value (s)",
-      "site-free background (ROI counts)",
+      "switch-off hold (s)",
+      "change from shortest point (ROI counts)",
       "10 independent shots per point",
       "frame 1",
       "frame 2",
@@ -98,12 +107,12 @@
       "frame 4",
       "frame 5",
       "Bright-wait sweep",
-      "sweep value (s)",
-      "site-free background (ROI counts)",
+      "prior bright wait (s)",
+      "change from shortest point (ROI counts)",
       "10 independent shots per point",
       "frame 1",
       "frame 2",
-      "Points show 95% complete-shot cluster intervals."
+      "Each frame is zeroed to its own shortest sweep point. Error bars are the original pointwise 95% complete-shot intervals translated by that reference estimate; shared-reference covariance is unavailable."
     ],
     "bright_wait_decay.png": [
       "Bright-wait occupancy",
@@ -158,6 +167,16 @@
       "Per-site apparent retention",
       "Held-out apparent retention and complete-shot 95% interval width; fixed color scales are 0 to 1 and 0 to 0.5. 4\u201321 independent test shots per site. Sites describe heterogeneity, not independent experimental repeats.",
       "95% cluster interval width"
+    ],
+    "sequence_design.png": [
+      "A  Five-frame switch-off-hold sequence",
+      "110 shots \u00b7 5 frames \u00b7 50 ms per exposure \u00b7 swept hold t = 0.1\u20132.1 s",
+      "B  Two-frame bright-wait sequence",
+      "100 shots \u00b7 2 frames \u00b7 50 ms per exposure \u00b7 swept bright wait w = 0.1\u20131.9 s",
+      "switches OFF",
+      "switches ON \u00b7 un-imaged",
+      "DDS commands remain configured throughout",
+      "Command audit verifies programmed switch and DDS states, not optical power. Switch-off is not verified optical darkness."
     ]
   }
 }

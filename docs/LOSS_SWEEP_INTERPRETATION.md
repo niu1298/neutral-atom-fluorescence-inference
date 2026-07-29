@@ -5,6 +5,18 @@ Exact estimates and intervals are generated into `reports/readme_metrics.md`;
 definitions and claim limits live here so a fitted number cannot silently
 change its scientific meaning.
 
+## Supporting generated figures
+
+The README uses the four-panel overview as its single primary result. The
+standalone diagnostic views remain available for detailed inspection:
+
+- [Operational switch-off-hold retention](../assets/readme/dark_hold_retention.png)
+- [Effective bright-wait apparent occupancy decay](../assets/readme/bright_wait_decay.png)
+- [Held-out per-site apparent retention](../assets/readme/per_site_retention_map.png)
+
+The per-site map describes spatial heterogeneity; sites are not additional
+independent experimental repeats.
+
 ## Claim table
 
 | quantity | operational definition | dataset | assumptions | uncertainty method | what may be claimed | what may not be claimed |
