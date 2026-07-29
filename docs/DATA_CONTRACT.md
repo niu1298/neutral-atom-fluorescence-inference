@@ -1,11 +1,18 @@
-# Data contract — schema **2.0**
+# Versioned frame-site data contract
 
 | Version | Change |
 |---|---|
 | 1.0 | first standardized table; the local annulus was the primary background |
 | **2.0** | annulus demoted to a diagnostic; four background methods in separate columns; `roi_sum` renamed `roi_sum_raw`; `schema_version` and `geometry_version` recorded in the metadata sidecar |
+| **3.0** | additive multi-dataset, sweep, timing, split and hardware-command fields; V0 remains a schema-2.0 product |
 
 `schema.migrate_v1_to_v2` renames a v1 table into v2 names. It fills nothing in: a migrated table is explicitly missing the spatial and template methods, and the old primary maps onto `count_corrected_annulus_contaminated` rather than being silently promoted.
+
+Schema 3.0 extends, rather than replaces, the schema-2.0 frame-site table.
+`schema.migrate_v2_to_v3` requires explicit run metadata for fields that did
+not exist in V2 and leaves unrecoverable hardware measurements null. The
+paired-100-ms config still requests schema 2.0, so its columns, commands and
+sidecar meaning are unchanged.
 
 The boundary between the two repositories, and the exact table that crosses it.
 
@@ -40,11 +47,15 @@ never written to, never installed into, and never modified.
 | `<dataset_id>.parquet` | the frame-site long table, one row per (shot, frame, site) |
 | `<dataset_id>.sites.parquet` | one row per site: geometry, ROI box, fit diagnostics |
 | `<dataset_id>.meta.json` | provenance, site-fit summary, validation report, schema |
+| `<dataset_id>.run.json` | run-level timing, command-state evidence, globals and missing-metadata explanations (V3) |
+| `<dataset_id>.splits.parquet` | one row per complete shot with its frozen train/validation/test assignment (V3) |
 
 None of them are committed. Regenerate with:
 
 ```bash
 python scripts/export_processed_dataset.py --config configs/paired_100ms.yaml
+python scripts/export_processed_dataset.py --config configs/dark_hold_50ms_20260728_0044.yaml
+python scripts/export_processed_dataset.py --config configs/bright_wait_50ms_20260728_0050.yaml
 ```
 
 ---
@@ -57,6 +68,8 @@ python scripts/export_processed_dataset.py --config configs/paired_100ms.yaml
 
 Enforced by `schema.validate`, which also requires that every shot carry a
 complete `frames × sites` block. A partial shot is an error, not a warning.
+Schema V3 uses `(dataset_id, run_id, shot_id, frame_id, site_id)` so multiple
+datasets cannot collide when concatenated.
 
 ---
 
@@ -103,6 +116,29 @@ given. `tests/test_background_models.py` asserts the columns stay distinct and
 `tests/test_dataset.py` asserts each corrected column equals raw minus its own
 background.
 
+## Additive schema-3.0 fields
+
+| Group | Columns | Meaning |
+|---|---|---|
+| dataset identity | `dataset_id`, `date`, `sequence_id`, `sequence_type` | machine-independent identifiers; no local path |
+| acquisition | `repetition_index`, `cycle_index`, `condition_id`, `shot_order`, `split` | complete-shot grouping and frozen 60/20/20 cycle split |
+| sweep | `sweep_axis`, `sweep_value_s` | public sweep name and exact value read from shot globals |
+| frame | `frame_index`, `frame_name`, `frame_start_s`, `frame_elapsed_s`, `exposure_s`, `interframe_gap_s` | commanded frame order and timing |
+| optical interval | `dark_hold_s`, `bright_wait_before_first_s`, `actual_light_on_s` | commanded holds/waits; realized light-on time is null without readback |
+| command state | `switch_state`, `dds_frequency`, `dds_amplitude` | scalar values only when directly recoverable; multi-channel state lives at run level |
+| geometry | `grid_id`, `site_row`, `site_col`, `site_y`, `site_x` | per-run lattice identity and coordinates |
+| template background | `background_template_offset`, `count_corrected_template` | public aliases for training-shot fixed template plus per-frame offset |
+
+The retained V2 names (`grid`, `background_fixed_offset`,
+`count_corrected_fixed_offset`) remain present in V3. The aliases have exactly
+the same numeric values; they expose the public V1 terminology without
+silently changing V0.
+
+Run-level JSON stores globals and multi-channel DDS commands once instead of
+duplicating them across every site-frame row. Each hardware field records its
+evidence scope. In particular, compiled switch commands are not optical-power
+readback, and commanded trigger duration is not a measured camera exposure.
+
 ---
 
 ## Quality flags
@@ -127,8 +163,10 @@ excluded by an explicit flag filter, visible in that analysis.
 ## Missing data
 
 Absent metadata is written as null. It is never back-filled from a nominal
-value, a neighbouring shot, or a configuration default. If a column is null,
-the shot file did not contain it.
+value, a neighbouring shot, or a configuration default. The run sidecar
+records why values such as realized light-on time or scalar DDS settings are
+unavailable. A null therefore means “not recoverable under the stated evidence
+scope,” not zero.
 
 ---
 
@@ -136,23 +174,28 @@ the shot file did not contain it.
 
 1. The shot count matches `source.expected_n_shots`, or the export aborts.
 2. Every shot has every configured frame, or the export aborts.
-3. Per-shot exposure and inter-frame timing are cross-checked against
-   `source.expected_*` and recorded in the metadata sidecar.
+3. Per-shot exposure, frame ordering, sweep grouping and inter-frame timing
+   are cross-checked against `source.expected_*`, the HDF5 `EXPOSURES` table
+   and compiled command edges, then recorded with their evidence scope.
 4. Schema validation runs on every export; failure is a non-zero exit code.
-5. Provenance — git commit, dirty flag, config SHA-256, input manifest hash,
-   Python version, **schema version, geometry version, background method and
-   mask parameters** — is written into the metadata sidecar.
-6. Nothing machine-identifying is written into any artefact: paths appear only
-   as `<configured:present>` / `<configured:missing>`.
+5. Provenance — inference commit, lab-analysis commit, dirty flag, config
+   SHA-256, input-manifest hash, Python version, schema and geometry versions,
+   background method, split definition, random seed and model version — is
+   written into the metadata/result sidecars.
+6. Nothing machine-identifying is written into any artefact: input paths appear
+   only as `<configured:present>` / `<configured:missing>`, while output paths
+   appear as `<configured>` so a first build and a repeat build hash equally.
 
 ---
 
 ## Reproducibility
 
-Given the same raw shots and the same config, the exporter is deterministic:
-site finding uses no random initialisation, and the k-means helper seeds
-deterministically from coordinate quantiles. `tests/test_dataset.py` asserts
-byte-level equality of the table across two independent builds.
+Given the same raw shots and the same config, the exporter is deterministic.
+For V3, geometry and the fixed background template are fitted on training
+cycles only; validation and test shots never alter them. Split generation is
+deterministic and every condition contributes 6/2/2 shots for
+train/validation/test. Tests rebuild in isolated output roots and compare
+tables and metadata without relying on operating-system-specific PNG bytes.
 
 Any stochastic step elsewhere (the QC bootstrap) takes its seed from
 `qc.random_seed` in the config and records it in the output.

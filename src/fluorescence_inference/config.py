@@ -53,13 +53,16 @@ class Paths:
         """Path *shape* without machine-identifying prefixes.
 
         Only ever emit this into generated metadata: it records that a path
-        was configured and whether it exists, never where it points.
+        was configured and, for read-only inputs, whether it exists, never
+        where it points.  Output-directory existence is deliberately omitted:
+        a clean first build creates those directories, so recording that state
+        would make otherwise identical rebuild metadata differ.
         """
         return {
             "experiment_data_root": _redact(self.experiment_data_root),
             "tweezer_analysis_src": _redact(self.tweezer_analysis_src),
-            "processed_root": _redact(self.processed_root),
-            "reports_root": _redact(self.reports_root),
+            "processed_root": "<configured>",
+            "reports_root": "<configured>",
         }
 
 
@@ -92,6 +95,15 @@ class Config:
     @property
     def run_id(self) -> str:
         return str(self.raw["run_id"])
+
+    @property
+    def schema_version(self) -> str:
+        """Explicit table schema; absent means the backwards-compatible V2."""
+        return str(self.raw.get("schema_version", "2.0"))
+
+    @property
+    def sequence_type(self) -> str:
+        return str(self.raw.get("sequence_type", "paired_readout"))
 
     @property
     def shot_dir(self) -> Path:

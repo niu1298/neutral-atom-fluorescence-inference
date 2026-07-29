@@ -46,6 +46,7 @@ def main() -> int:
         expected_frames=cfg.n_frames,
         expected_shots=cfg["source"].get("expected_n_shots"),
         expected_sites=cfg.n_sites_expected,
+        version=cfg.schema_version,
     )
     meta = dict(ctx["meta"])
     meta["provenance"] = stamp(cfg, inputs=ctx["shots"])
@@ -54,12 +55,17 @@ def main() -> int:
         "warnings": report.warnings, "stats": report.stats,
     }
     meta["schema"] = {
-        "primary_key": list(schema.PRIMARY_KEY),
+        "primary_key": list(schema.primary_key_for_version(cfg.schema_version)),
         "columns": {c: {"dtype": t, "nullable": n, "description": d}
-                    for c, (t, n, d) in schema.ALL_COLUMNS.items()},
+                    for c, (t, n, d) in
+                    schema.columns_for_version(cfg.schema_version).items()},
     }
 
-    paths = write_dataset(cfg, df, sites_df, meta)
+    paths = write_dataset(
+        cfg, df, sites_df, meta,
+        run_metadata=ctx.get("run_metadata"),
+        split_manifest=ctx.get("split_manifest"),
+    )
 
     if not args.quiet:
         s = report.stats
@@ -70,8 +76,8 @@ def main() -> int:
               f"({', '.join(v for v in s['quality_flag_values'] if v != 'ok') or 'none'})")
         print(f"sites detected ....... {int(sites_df['site_detected'].sum())}"
               f"/{len(sites_df)}")
-        for name in ("table", "sites", "meta"):
-            print(f"{name:<20} {paths[name].name}")
+        for name, path in paths.items():
+            print(f"{name:<20} {path.name}")
 
     if not report.ok:
         print("\nVALIDATION FAILED:", file=sys.stderr)

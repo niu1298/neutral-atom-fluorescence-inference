@@ -1,0 +1,149 @@
+# Five-frame 50 ms switch-off-hold sweep.  Machine paths remain in the
+# untracked configs/local.toml layer.
+schema_version: "3.0"
+dataset_id: dark_hold_20260728_0044
+run_id: "20260728_0044"
+date: "2026-07-28"
+sequence_id: "20260728_0044"
+sequence_type: switch_off_hold
+
+source:
+  shot_subdir: "2026-07-28/0044"
+  file_glob: "*.h5"
+  expected_n_shots: 110
+  expected_sequence_index: 44
+  h5:
+    run_number_attr: "run number"
+    run_time_attr: "run time"
+    n_runs_attr: "n_runs"
+    sequence_index_attr: "sequence_index"
+    sequence_date_attr: "sequence_date"
+    script_basename_attr: "script_basename"
+    globals_group: "globals"
+    exposures_dataset: "devices/hamamatsu/EXPOSURES"
+  frames:
+    - {frame_id: 0, exposure_name: "fluor",  h5_path: "images/hamamatsu/fluor/atoms"}
+    - {frame_id: 1, exposure_name: "fluor2", h5_path: "images/hamamatsu/fluor2/atoms"}
+    - {frame_id: 2, exposure_name: "fluor3", h5_path: "images/hamamatsu/fluor3/atoms"}
+    - {frame_id: 3, exposure_name: "fluor4", h5_path: "images/hamamatsu/fluor4/atoms"}
+    - {frame_id: 4, exposure_name: "fluor5", h5_path: "images/hamamatsu/fluor5/atoms"}
+  expected_exposure_s: 0.05
+  camera_bit_depth: 16
+  saturation_adu: 65535
+
+sweep:
+  global: "SECOND_HAMAMATSU_FLUOR_DELAY"
+  axis: "switch_off_hold_s"
+  values_s: [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 1.7, 1.9, 2.1]
+  value_tolerance_s: 1.0e-9
+  verify_cycle_order: true
+
+split:
+  strategy: chronological_cycle_60_20_20
+  sensitivity_strategy: seeded_cycle_60_20_20
+  sensitivity_seed: 20260728
+
+extraction:
+  # Geometry and the fixed spatial background template are frozen from the
+  # training cycles before validation or test counts are evaluated.
+  fit_scope: train
+
+timing:
+  bright_wait_global: "WAIT_BEFORE_FIRST_FLUOR"
+
+sites:
+  method: matched_template_average
+  geometry_version: "20260728.0044.g1"
+  variance_frames: [0, 1, 2, 3, 4]
+  highpass_sigma: 30.0
+  score_smooth_sigma: 0.8
+  clip_negative: true
+  density_sigma: 12.0
+  density_percentile: 97.0
+  min_component_px: 200
+  region_pad_px: 25
+  peak_neighborhood: 5
+  peak_percentile: 98.0
+  n_grids: 1
+  grid_names: ["grid_A"]
+  ny: 10
+  nx: 10
+  nn_vector_tol_lo: 0.6
+  nn_vector_tol_hi: 1.45
+  angle_bin_deg: 5.0
+  angle_tol_deg: 15.0
+  min_angle_between_basis_deg: 50.0
+  refine_iterations: 6
+  detection_radius_px: 3.0
+  matched_spacings_px: [9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5]
+  matched_tilts_deg: [-30, -28, -26, -24, -22, -20, -18, -16, -14, -12, -10, -8, -6, -4, -2, 0, 2, 4]
+  matched_exclude_radius_px: 70
+
+roi:
+  trap_half_width: 2
+  local_bg_inner_half_width: 6
+  local_bg_outer_half_width: 16
+  local_bg_stat: median
+  camera_offset_counts_per_pixel: 0.0
+
+background:
+  mask_radius_px: 5.0
+  hot_pixel_sigma: 8.0
+  surface_degree: 4
+  max_fit_pixels: 80000
+  huber_k: 1.345
+  irls_iterations: 4
+  residual_block_px: 25
+  primary_method: fixed_offset
+
+legacy_annulus:
+  enabled: true
+  inner_half_width: 6
+  outer_half_width: 16
+  stat: median
+
+quality:
+  saturation_fraction_max: 0.0
+  roi_edge_margin_px: 2
+  local_bg_min_pixels: 200
+
+hardware:
+  command_evidence: "compiled shot program and embedded sequence source"
+  commanded_switch_state_during_exposure: "science_imaging_switches_on"
+  commanded_switch_state_during_interframe_gap: "science_imaging_switches_off"
+  dds_commands_held_during_interframe_gap: true
+  optical_power_readback_available: false
+  extinction_or_leakage_measurement_available: false
+  dds_command_state:
+    dds_0:
+      channel_0: {frequency_mhz: 80.0, amplitude_command: 0.65}
+      channel_1: {frequency_mhz: 80.0, amplitude_command: 0.60}
+      channel_2: {frequency_mhz: 67.5, amplitude_command: 1.00}
+      channel_3: {frequency_mhz: 100.0, amplitude_command: 0.60}
+    dds_1:
+      channel_0: {frequency_mhz: 80.0, amplitude_command: 0.20}
+      channel_1: {frequency_mhz: 80.0, amplitude_command: 0.00}
+      channel_2: {frequency_mhz: 80.0, amplitude_command: 0.14}
+      channel_3: {frequency_mhz: 80.0, amplitude_command: 1.00}
+
+run_metadata:
+  public_globals:
+    - "SECOND_HAMAMATSU_FLUOR_DELAY"
+    - "WAIT_BEFORE_FIRST_FLUOR"
+    - "NUM_FLUOR"
+  leaf_metadata_conflict: >-
+    Leaf image attributes report a stale 5 ms exposure and incompatible
+    subarray; the commanded EXPOSURES table and compiled trigger agree on
+    50 ms. No measured exposure readback exists.
+
+qc:
+  random_seed: 20260728
+  n_example_shots: 3
+  hist_bins: 80
+
+readme_assets:
+  random_seed: 20260728
+  gif_width_px: 1100
+  gif_fps: 10
+  scene_hold_frames: 12
+  transition_frames: 6

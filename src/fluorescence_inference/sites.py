@@ -337,6 +337,159 @@ def build_site_map(var_img: np.ndarray, cfg_sites: dict[str, Any],
     )
 
 
+def build_matched_template_site_map(
+    mean_img: np.ndarray,
+    cfg_sites: dict[str, Any],
+    *,
+    trap_half_width: int,
+    fit_lattices,
+) -> SiteMap:
+    """Build a site map from the lab package's full-lattice matched template.
+
+    This path is useful when a swept loss experiment makes the pixel variance
+    strongly condition dependent.  The generic lab fitter supplies the
+    lattice parameters; this function only converts its result into the
+    repository's stable :class:`SiteMap` contract and computes a separate
+    peak-proximity diagnostic.  No prototype notebook coordinates are used.
+    """
+    image = np.asarray(mean_img, dtype=float)
+    n_grids = int(cfg_sites["n_grids"])
+    ny = int(cfg_sites["ny"])
+    nx = int(cfg_sites["nx"])
+    names = list(cfg_sites["grid_names"])
+    if len(names) != n_grids:
+        raise ValueError("grid_names length must equal n_grids")
+
+    kwargs: dict[str, Any] = {
+        "n_grids": n_grids,
+        "ny": ny,
+        "nx": nx,
+        "names": names,
+        "progress": False,
+    }
+    if "matched_spacings_px" in cfg_sites:
+        kwargs["spacings"] = np.asarray(
+            cfg_sites["matched_spacings_px"], dtype=float
+        )
+    if "matched_tilts_deg" in cfg_sites:
+        kwargs["tilts_deg"] = np.asarray(
+            cfg_sites["matched_tilts_deg"], dtype=float
+        )
+    if "matched_exclude_radius_px" in cfg_sites:
+        kwargs["exclude_radius"] = int(
+            cfg_sites["matched_exclude_radius_px"]
+        )
+    fits = fit_lattices(image, **kwargs)
+    if len(fits) != n_grids:
+        raise RuntimeError(
+            f"matched template returned {len(fits)} grids, expected {n_grids}"
+        )
+
+    all_centers = np.vstack(
+        [np.asarray(fit["fitted_centers_yx"], dtype=float) for fit in fits]
+    )
+    pad = int(cfg_sites.get("region_pad_px", 25))
+    h, w = image.shape
+    x0 = max(0, int(np.floor(all_centers[:, 1].min())) - pad)
+    x1 = min(w, int(np.ceil(all_centers[:, 1].max())) + pad + 1)
+    y0 = max(0, int(np.floor(all_centers[:, 0].min())) - pad)
+    y1 = min(h, int(np.ceil(all_centers[:, 0].max())) + pad + 1)
+    roi = (x0, x1, y0, y1)
+
+    # Detection remains a diagnostic.  Geometry comes from the matched
+    # template, so a site need not cross this single-peak threshold to exist.
+    score = finding_score(
+        image,
+        highpass_sigma=float(cfg_sites["highpass_sigma"]),
+        smooth_sigma=float(cfg_sites["score_smooth_sigma"]),
+        clip_negative=bool(cfg_sites.get("clip_negative", True)),
+    )
+    points = detect_peaks(
+        score,
+        roi,
+        neighborhood=int(cfg_sites["peak_neighborhood"]),
+        percentile=float(cfg_sites["peak_percentile"]),
+    )
+    radius = float(cfg_sites["detection_radius_px"])
+
+    grids: list[GridFit] = []
+    for fit, name in zip(fits, names):
+        centers = np.asarray(fit["fitted_centers_yx"], dtype=float)
+        if centers.shape != (ny * nx, 2):
+            raise RuntimeError(
+                f"matched grid {name!r} returned shape {centers.shape}, "
+                f"expected {(ny * nx, 2)}"
+            )
+        shaped = centers.reshape(ny, nx, 2)
+        row_vector = np.median(
+            shaped[1:, :, :] - shaped[:-1, :, :], axis=(0, 1)
+        )
+        col_vector = np.median(
+            shaped[:, 1:, :] - shaped[:, :-1, :], axis=(0, 1)
+        )
+        if len(points):
+            distance = np.linalg.norm(
+                centers[:, None, :] - points[None, :, :], axis=2
+            )
+            residual = distance.min(axis=1)
+        else:
+            residual = np.full(ny * nx, np.inf)
+        full_index = np.array(
+            [(row, col) for row in range(ny) for col in range(nx)],
+            dtype=int,
+        )
+        grids.append(
+            GridFit(
+                name=name,
+                ny=ny,
+                nx=nx,
+                origin_yx=centers[0],
+                row_vector_yx=row_vector,
+                col_vector_yx=col_vector,
+                centers_yx=centers,
+                row_index=full_index[:, 0],
+                col_index=full_index[:, 1],
+                detected=residual <= radius,
+                residual_px=residual,
+                n_peaks_used=int(
+                    np.count_nonzero(
+                        np.min(
+                            np.linalg.norm(
+                                points[:, None, :] - centers[None, :, :],
+                                axis=2,
+                            ),
+                            axis=1,
+                        )
+                        <= radius
+                    )
+                )
+                if len(points)
+                else 0,
+            )
+        )
+
+    centers = np.vstack([grid.centers_yx for grid in grids])
+    grid_name = [
+        grid.name for grid in grids for _ in range(grid.centers_yx.shape[0])
+    ]
+    row_index = np.concatenate([grid.row_index for grid in grids])
+    col_index = np.concatenate([grid.col_index for grid in grids])
+    detected = np.concatenate([grid.detected for grid in grids])
+    boxes = [_box(y, x, trap_half_width, (h, w)) for y, x in centers]
+    return SiteMap(
+        grids=grids,
+        site_id=np.arange(centers.shape[0], dtype=int),
+        grid_name=grid_name,
+        centers_yx=centers,
+        row_index=row_index,
+        col_index=col_index,
+        detected=detected,
+        boxes=boxes,
+        array_roi=roi,
+        score_image=score,
+    )
+
+
 def _box(y: float, x: float, half_width: int, shape: tuple[int, int]
          ) -> tuple[int, int, int, int]:
     """ROI box, identical convention to the lab helper (half-open, clipped)."""

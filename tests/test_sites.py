@@ -145,3 +145,53 @@ def test_undetected_site_still_gets_a_modelled_position(synthetic_array):
     k = int(np.argmin(d))
     assert d[k] < 1.5, "the blanked site still has a modelled position"
     assert not sm.detected[k], "and it is flagged as undetected"
+
+
+def test_matched_template_adapter_preserves_row_major_geometry():
+    image = np.zeros((100, 110), dtype=float)
+    centers = np.array(
+        [(35.0 + 10.0 * row, 40.0 + 10.0 * col)
+         for row in range(3) for col in range(3)]
+    )
+    for y, x in centers:
+        image[int(y), int(x)] = 100.0
+
+    def fake_fit_lattices(img, **kwargs):
+        assert img.shape == image.shape
+        assert kwargs["n_grids"] == 1
+        assert kwargs["ny"] == kwargs["nx"] == 3
+        return [{
+            "fitted_centers_yx": centers.tolist(),
+            "center_yx": centers.mean(axis=0).tolist(),
+            "spacing_px": 10.0,
+            "tilt_deg": 0.0,
+        }]
+
+    cfg = {
+        "highpass_sigma": 10.0,
+        "score_smooth_sigma": 0.8,
+        "clip_negative": True,
+        "region_pad_px": 8,
+        "peak_neighborhood": 3,
+        "peak_percentile": 90.0,
+        "n_grids": 1,
+        "grid_names": ["grid_A"],
+        "ny": 3,
+        "nx": 3,
+        "detection_radius_px": 2.0,
+        "matched_spacings_px": [9.5, 10.0, 10.5],
+        "matched_tilts_deg": [-2, 0, 2],
+    }
+    sm = sites.build_matched_template_site_map(
+        image,
+        cfg,
+        trap_half_width=2,
+        fit_lattices=fake_fit_lattices,
+    )
+    np.testing.assert_allclose(sm.centers_yx, centers)
+    np.testing.assert_allclose(sm.grids[0].row_vector_yx, [10.0, 0.0])
+    np.testing.assert_allclose(sm.grids[0].col_vector_yx, [0.0, 10.0])
+    assert sm.row_index.tolist() == [0, 0, 0, 1, 1, 1, 2, 2, 2]
+    assert sm.col_index.tolist() == [0, 1, 2, 0, 1, 2, 0, 1, 2]
+    assert all((y1 - y0, x1 - x0) == (5, 5)
+               for y0, y1, x0, x1 in sm.boxes)
