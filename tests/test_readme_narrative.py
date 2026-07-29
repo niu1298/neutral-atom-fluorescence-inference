@@ -70,11 +70,12 @@ def test_headline_table_and_claim_boundary_are_exactly_scoped():
     )
     assert match is not None
     fragment = match.group(1)
-    data_rows = [
+    table_rows = [
         line
         for line in fragment.splitlines()
-        if line.startswith("| ") and not line.startswith("| headline")
+        if line.startswith("| ") and not line.startswith("|---")
     ]
+    data_rows = table_rows[1:]
     assert len(data_rows) == 3
     assert "`tau_switch_off`" in data_rows[0]
     assert "`tau_bright_effective`" in data_rows[1]

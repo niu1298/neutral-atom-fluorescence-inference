@@ -305,6 +305,9 @@ def _result_fixture() -> dict:
                 "model_band": bright_band,
                 "post_wait_control": {
                     "selected_model": "flat",
+                    "selected_structure": "flat",
+                    "kappa_status": "structurally_fixed",
+                    "kappa_fixed_value": 0.0,
                     "trend_resolved": False,
                     "clustered_curve": control_curve,
                     "model_band": control_band,
@@ -399,9 +402,40 @@ def _result_fixture() -> dict:
                 "lower": 0.088,
                 "upper": 0.124,
             },
+            "structural_sensitivity": {
+                "selected_structure": "no_floor",
+                "selected_predicted_loss_percentage": 1.93,
+                "selected_gap_percentage_points": 10.6,
+                "selected_sampling_ci_percentage_points": [8.8, 12.4],
+                "alternative_structure": "floor",
+                "alternative_floor": 0.11,
+                "alternative_effective_rate_per_s": 1.2,
+                "alternative_predicted_loss_percentage": 5.4,
+                "alternative_gap_percentage_points": 7.1,
+                "structural_range_percentage_points": [7.1, 10.6],
+                "gap_sign_positive_under_both_structures": True,
+                "interpretation": (
+                    "The range is model-structure sensitivity, not a "
+                    "confidence interval."
+                ),
+            },
+            "whole_cycle_bootstrap_sensitivity": {
+                "available": True,
+                "dark_n_requested": 1000,
+                "dark_n_successful": 999,
+                "dark_n_failed": 1,
+                "bright_n_requested": 1000,
+                "bright_n_successful": 1000,
+                "bright_n_failed": 0,
+                "observed_minus_predicted_apparent_loss": {
+                    "estimate": 0.103,
+                    "lower": 0.084,
+                    "upper": 0.122,
+                },
+            },
             "allowed_conclusion": (
                 "The simple constant-rate bright-wait model does not explain "
-                "the full inter-readout loss."
+                "the full apparent inter-readout loss."
             ),
             "pooling_reason": (
                 "the acquisitions have a one-pitch coordinate shift and "
@@ -700,15 +734,19 @@ def test_publication_fragments_are_deterministic_source_backed_and_private():
     assert "| `tau_switch_off` |" in results
     assert "| `tau_bright_effective` |" in results
     assert "observed − predicted 50 ms apparent-loss gap" in results
+    assert "model-structure sensitivity" in results
+    assert "not total model uncertainty" in results
     assert "does not establish a fixed per-pulse mechanism" in results
     assert "Held-out count baselines" not in results
     assert first["readme-metrics-v1"].startswith(
         "### V1 held-out loss-sweep inference"
     )
     assert "6/2/2 per condition; 66/22/22 total" in first["readme-metrics-v1"]
-    assert "no post-wait retention trend was resolved" in first[
+    assert "is fixed to zero by that selected structure" in first[
         "readme-metrics-v1"
     ]
+    assert "model-structure range" in first["readme-metrics-v1"]
+    assert "Whole-cycle bootstrap sensitivity" in first["readme-metrics-v1"]
     assert "not empirical fidelity" in first["readme-metrics-v1"]
     for name, fragment in first.items():
         assert_public_safe(fragment, f"test {name} fragment")

@@ -34,7 +34,6 @@ def test_generation_order_preserves_the_standalone_workflow():
         "export paired readout",
         "validate paired-readout geometry",
         "compare paired-readout backgrounds",
-        "generate paired-readout assets",
         "audit switch-off hold sweep",
         "audit bright-wait sweep",
         "export switch-off hold sweep",
@@ -42,9 +41,10 @@ def test_generation_order_preserves_the_standalone_workflow():
         "validate loss-sweep geometry",
         "compare loss-sweep backgrounds",
         "analyze loss sweeps",
+        "generate paired-readout assets",
         "generate loss-sweep assets",
     ]
-    assert steps[-2].arguments[-4:] == (
+    assert steps[-3].arguments[-4:] == (
         "--bootstrap",
         "1000",
         "--seed",
@@ -59,7 +59,7 @@ def test_configured_report_paths_are_forwarded_across_stages(scratch):
         seed=7,
         paths=paths,
     )
-    analysis = steps[-2].arguments
+    analysis = steps[-3].arguments
     assets = steps[-1].arguments
     for flag, expected in (
         ("--geometry-report", paths.geometry_report),
@@ -140,16 +140,88 @@ def test_dry_run_uses_resolved_paths_and_writes_nothing(
 def test_main_executes_generation_then_tests(monkeypatch):
     paths = reproduce.default_output_paths()
     monkeypatch.setattr(reproduce, "resolve_output_paths", lambda: paths)
+    monkeypatch.setattr(reproduce, "require_clean_worktree", lambda: None)
+    analysis_commit = "a" * 40
+    monkeypatch.setattr(
+        reproduce, "resolve_head_commit", lambda: analysis_commit
+    )
     calls: list[tuple[str, ...]] = []
+    executed_steps: list[tuple[reproduce.Step, ...]] = []
+    manifests: list[Path] = []
 
     def fake_execute(steps, **_kwargs):
+        executed_steps.append(tuple(steps))
         calls.append(tuple(step.name for step in steps))
 
     monkeypatch.setattr(reproduce, "execute_steps", fake_execute)
+    monkeypatch.setattr(
+        reproduce,
+        "write_reviewed_manifest",
+        lambda path: manifests.append(path),
+    )
     assert reproduce.main([]) == 0
     assert calls[0][0] == "audit paired readout"
     assert calls[0][-1] == "generate loss-sweep assets"
     assert calls[1] == ("run complete test suite",)
+    assert manifests == [reproduce.PUBLICATION_MANIFEST]
+    analysis = next(
+        step for step in executed_steps[0] if step.name == "analyze loss sweeps"
+    )
+    assert (
+        analysis.arguments[
+            analysis.arguments.index("--analysis-code-commit") + 1
+        ]
+        == analysis_commit
+    )
+    assert "--require-clean-provenance" in analysis.arguments
+
+
+def test_manifest_is_not_written_when_tests_fail(monkeypatch):
+    paths = reproduce.default_output_paths()
+    monkeypatch.setattr(reproduce, "resolve_output_paths", lambda: paths)
+    monkeypatch.setattr(reproduce, "require_clean_worktree", lambda: None)
+    monkeypatch.setattr(reproduce, "resolve_head_commit", lambda: "a" * 40)
+    calls = 0
+
+    def fake_execute(_steps, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise reproduce.ReproductionError("test stage failed")
+
+    manifest_called = False
+
+    def unexpected_manifest(_path):
+        nonlocal manifest_called
+        manifest_called = True
+
+    monkeypatch.setattr(reproduce, "execute_steps", fake_execute)
+    monkeypatch.setattr(
+        reproduce, "write_reviewed_manifest", unexpected_manifest
+    )
+    assert reproduce.main([]) == 2
+    assert calls == 2
+    assert manifest_called is False
+
+
+def test_verify_reviewed_branches_before_publish_generation(monkeypatch):
+    paths = reproduce.default_output_paths()
+    monkeypatch.setattr(reproduce, "resolve_output_paths", lambda: paths)
+    calls: list[tuple[reproduce.OutputPaths, Path]] = []
+
+    def fake_verify(*, paths, manifest_path, environment):
+        assert environment["PYTHONHASHSEED"] == "0"
+        calls.append((paths, manifest_path))
+
+    def unexpected_generation(**_kwargs):
+        raise AssertionError("verification built publish-mode generation steps")
+
+    monkeypatch.setattr(reproduce, "verify_reviewed", fake_verify)
+    monkeypatch.setattr(
+        reproduce, "build_generation_steps", unexpected_generation
+    )
+    assert reproduce.main(["--verify-reviewed"]) == 0
+    assert calls == [(paths, reproduce.PUBLICATION_MANIFEST)]
 
 
 def test_environment_overrides_do_not_mutate_the_input():
@@ -164,3 +236,47 @@ def test_environment_overrides_do_not_mutate_the_input():
 def test_bootstrap_minimum_is_enforced():
     with pytest.raises(SystemExit):
         reproduce.parse_args(["--bootstrap", "99", "--dry-run"])
+
+
+def test_verification_steps_write_only_to_isolated_targets(scratch):
+    paths = _custom_paths(scratch)
+    targets = reproduce.PublicationTargets(
+        result=scratch / "candidate" / "result.json",
+        paired_assets_dir=scratch / "candidate" / "paired",
+        sweep_assets_dir=scratch / "candidate" / "sweeps",
+    )
+    commit = "a" * 40
+    steps = reproduce.build_verification_steps(
+        bootstrap=100,
+        seed=17,
+        paths=paths,
+        targets=targets,
+        analysis_code_commit=commit,
+    )
+    assert [step.name for step in steps] == [
+        "generate candidate loss-sweep result",
+        "generate candidate paired-readout assets",
+        "generate candidate loss-sweep assets",
+    ]
+    analysis, paired, sweeps = (step.arguments for step in steps)
+    assert analysis[analysis.index("--output") + 1] == reproduce._argument_path(
+        targets.result
+    )
+    assert analysis[analysis.index("--analysis-code-commit") + 1] == commit
+    assert "--require-clean-provenance" in analysis
+    assert paired[paired.index("--output-dir") + 1] == reproduce._argument_path(
+        targets.paired_assets_dir
+    )
+    assert sweeps[sweeps.index("--output-dir") + 1] == reproduce._argument_path(
+        targets.sweep_assets_dir
+    )
+    assert reproduce._argument_path(reproduce.PUBLIC_RESULT) not in analysis
+
+
+def test_verify_reviewed_rejects_publish_or_test_flags():
+    for arguments in (
+        ["--verify-reviewed", "--dry-run"],
+        ["--verify-reviewed", "--skip-tests"],
+    ):
+        with pytest.raises(SystemExit):
+            reproduce.parse_args(arguments)

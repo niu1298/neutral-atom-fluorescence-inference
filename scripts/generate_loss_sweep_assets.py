@@ -2338,11 +2338,28 @@ def render_readme_metrics_v1(results: Mapping[str, Any]) -> str:
     control = _mapping(
         bright.get("post_wait_control"), name="bright post-wait control"
     )
-    control_model = _friendly_model(control.get("selected_model"))
+    control_structure = str(
+        control.get("selected_structure", control.get("selected_model", ""))
+    )
+    control_model = _friendly_model(control_structure)
     if control.get("trend_resolved") is True:
         control_statement = (
             f"validation selected {control_model}, with a resolved "
             "wait-dependent post-wait retention trend"
+        )
+    elif (
+        control_structure == "flat"
+        and control.get("kappa_status") == "structurally_fixed"
+        and _number(
+            control.get("kappa_fixed_value"),
+            name="flat post-wait kappa",
+        )
+        == 0.0
+    ):
+        control_statement = (
+            "validation selected a flat post-wait retention model. "
+            "\N{GREEK SMALL LETTER KAPPA} is fixed to zero by that selected "
+            "structure; the data do not resolve a monotone post-wait trend"
         )
     else:
         control_statement = (
@@ -2373,6 +2390,56 @@ def render_readme_metrics_v1(results: Mapping[str, Any]) -> str:
                 f"{_fmt_ci(cross.get('apparent_later_interval_fixed_loss'), digits=2, percent=True)}.",
                 f"- **Observed minus predicted:** "
                 f"{_fmt_ci(cross.get('observed_minus_predicted_loss'), digits=2, percent=True)}.",
+            ]
+        )
+        structural = _mapping(
+            cross.get("structural_sensitivity"),
+            name="cross-dataset structural sensitivity",
+        )
+        structural_range = structural.get("structural_range_percentage_points")
+        if (
+            not isinstance(structural_range, Sequence)
+            or isinstance(structural_range, (str, bytes))
+            or len(structural_range) != 2
+        ):
+            raise AssetInputError(
+                "structural_range_percentage_points must contain two bounds"
+            )
+        lower_structure = _number(
+            structural_range[0], name="structural range lower"
+        )
+        upper_structure = _number(
+            structural_range[1], name="structural range upper"
+        )
+        lines.extend(
+            [
+                "- **Unresolved floor alternative:** "
+                f"{_fmt(structural.get('alternative_gap_percentage_points'), 2)} "
+                "percentage-point gap; "
+                f"{lower_structure:.2f}\N{EN DASH}{upper_structure:.2f} "
+                "percentage-point model-structure range. This range is not a "
+                "confidence interval.",
+            ]
+        )
+        cycle = _mapping(
+            cross.get("whole_cycle_bootstrap_sensitivity"),
+            name="whole-cycle bootstrap sensitivity",
+        )
+        if cycle.get("available") is True:
+            lines.extend(
+                [
+                    "- **Whole-cycle bootstrap sensitivity:** apparent gap "
+                    f"{_fmt_ci(cycle.get('observed_minus_predicted_apparent_loss'), digits=2, percent=True)}; "
+                    f"{_integer(cycle.get('dark_n_successful'), name='dark cycle successes')}"
+                    f"/{_integer(cycle.get('dark_n_requested'), name='dark cycle requests')} "
+                    "dark and "
+                    f"{_integer(cycle.get('bright_n_successful'), name='bright cycle successes')}"
+                    f"/{_integer(cycle.get('bright_n_requested'), name='bright cycle requests')} "
+                    "bright fits succeeded.",
+                ]
+            )
+        lines.extend(
+            [
                 "",
                 f"{_md_cell(cross.get('allowed_conclusion'), name='allowed comparison conclusion')} "
                 "This does not prove a fixed per-pulse cost.",
@@ -2499,9 +2566,82 @@ def render_loss_sweep_results(results: Mapping[str, Any]) -> str:
         if comparison_ready
         else "not reported; public comparison gate failed"
     )
+    structural_text = None
+    if comparison_ready:
+        structural = _mapping(
+            cross.get("structural_sensitivity"),
+            name="cross-dataset structural sensitivity",
+        )
+        structural_range = structural.get("structural_range_percentage_points")
+        if (
+            not isinstance(structural_range, Sequence)
+            or isinstance(structural_range, (str, bytes))
+            or len(structural_range) != 2
+        ):
+            raise AssetInputError(
+                "structural_range_percentage_points must contain two bounds"
+            )
+        structural_lower = _number(
+            structural_range[0], name="structural range lower"
+        )
+        structural_upper = _number(
+            structural_range[1], name="structural range upper"
+        )
+        alternative_gap = _number(
+            structural.get("alternative_gap_percentage_points"),
+            name="alternative floor gap",
+        )
+        selected_gap = _number(
+            structural.get("selected_gap_percentage_points"),
+            name="selected gap",
+        )
+        selected_ci = structural.get(
+            "selected_sampling_ci_percentage_points"
+        )
+        if (
+            not isinstance(selected_ci, Sequence)
+            or isinstance(selected_ci, (str, bytes))
+            or len(selected_ci) != 2
+        ):
+            raise AssetInputError(
+                "selected_sampling_ci_percentage_points must contain two bounds"
+            )
+        selected_lower = _number(
+            selected_ci[0], name="selected gap sampling lower"
+        )
+        selected_upper = _number(
+            selected_ci[1], name="selected gap sampling upper"
+        )
+        if not (
+            selected_lower <= selected_gap <= selected_upper
+            and structural_lower
+            <= min(selected_gap, alternative_gap)
+            <= max(selected_gap, alternative_gap)
+            <= structural_upper
+        ):
+            raise AssetInputError(
+                "structural sensitivity bounds do not contain both gap fits"
+            )
+        gap_value = (
+            f"{gap_value}; "
+            f"{structural_lower:.2f}\N{EN DASH}{structural_upper:.2f} "
+            "percentage points across the selected and unresolved floor "
+            "structures"
+        )
+        structural_text = (
+            "Under the selected no-floor model, the apparent gap is "
+            f"{selected_gap:.2f} percentage points with a 95% complete-shot "
+            f"sampling interval of {selected_lower:.2f}\N{EN DASH}"
+            f"{selected_upper:.2f} percentage points. The unresolved floor "
+            f"alternative gives {alternative_gap:.2f} percentage points, so "
+            "the model-structure sensitivity is "
+            f"{structural_lower:.2f}\N{EN DASH}{structural_upper:.2f} "
+            "percentage points. The sign remains positive, but the selected-"
+            "model sampling interval is not total model uncertainty."
+        )
 
     lines = [
-        "| headline quantity | estimate (95% complete-shot cluster CI) |",
+        "| operational quantity | selected result and qualification |",
         "|---|---:|",
         f"| `tau_switch_off` | {dark_value} |",
         f"| `tau_bright_effective` | {bright_value} |",
@@ -2510,10 +2650,15 @@ def render_loss_sweep_results(results: Mapping[str, Any]) -> str:
         "",
     ]
     if comparison_ready:
-        lines.append(
-            "The simple constant-rate bright-wait model does not explain the "
-            "full apparent inter-readout loss. This does not establish a fixed "
-            "per-pulse mechanism."
+        assert structural_text is not None
+        lines.extend(
+            [
+                structural_text,
+                "",
+                "The simple constant-rate bright-wait model does not explain "
+                "the full apparent inter-readout loss. This does not establish "
+                "a fixed per-pulse mechanism.",
+            ]
         )
     else:
         lines.append(

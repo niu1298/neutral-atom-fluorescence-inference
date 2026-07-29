@@ -18,6 +18,7 @@ from scipy.optimize import minimize
 from .cluster_bootstrap import (
     ClusterBootstrapResult,
     condition_stratified_cluster_bootstrap,
+    whole_cycle_cluster_bootstrap,
     resample_shot_clusters,
 )
 
@@ -156,6 +157,7 @@ def make_retention_events(
     condition_cols: str | Sequence[str] = "condition_id",
     response_col: str = "retained_next",
     interval_col: str = "interval",
+    passthrough_cols: Sequence[str] = (),
 ) -> pd.DataFrame:
     """Create consecutive-frame retention events conditional on a prior 1 call."""
     shot_cols = _as_tuple(shot_cols)
@@ -169,6 +171,7 @@ def make_retention_events(
         order_col,
         time_col,
         call_col,
+        *passthrough_cols,
     ]
     _require_columns(scored, required)
     identity_cols = [*shot_cols, site_col]
@@ -183,7 +186,15 @@ def make_retention_events(
         sort=False,
     )
     events = ordered[
-        [*shot_cols, *condition_cols, site_col, time_col, frame_col, call_col]
+        [
+            *shot_cols,
+            *condition_cols,
+            site_col,
+            time_col,
+            frame_col,
+            call_col,
+            *passthrough_cols,
+        ]
     ].copy()
     events["_next_frame"] = grouped[frame_col].shift(-1)
     events["_next_call"] = grouped[call_col].shift(-1)
@@ -199,6 +210,7 @@ def make_retention_events(
                 time_col,
                 interval_col,
                 response_col,
+                *passthrough_cols,
             ]
         )
     if pd.api.types.is_integer_dtype(ordered[frame_col].dtype):
@@ -217,6 +229,7 @@ def make_retention_events(
             time_col,
             interval_col,
             response_col,
+            *passthrough_cols,
         ]
     ].reset_index(drop=True)
 
@@ -1188,6 +1201,413 @@ def bootstrap_control_retention(
         confidence=confidence,
         shot_cols=original_shot_cols,
         condition_cols=original_condition_cols,
+    )
+
+
+def bootstrap_dark_retention_by_cycle(
+    data: pd.DataFrame,
+    *,
+    n_boot: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+    cycle_cols: str | Sequence[str] = ("run_id", "cycle_index"),
+    shot_cols: str | Sequence[str] = ("run_id", "shot_id"),
+    condition_cols: str | Sequence[str] = "condition_id",
+    **fit_kwargs: Any,
+) -> ClusterBootstrapResult:
+    """Whole-cycle sensitivity for switch-off retention parameters."""
+    cycle_cols = _as_tuple(cycle_cols)
+    shot_cols = _as_tuple(shot_cols)
+    condition_cols = _as_tuple(condition_cols)
+    response_col = str(fit_kwargs.get("response_col", "retained_next"))
+    time_col = str(fit_kwargs.get("time_col", "sweep_value_s"))
+    interval_col = str(fit_kwargs.get("interval_col", "interval"))
+    sufficient = _aggregate_shot_binomial(
+        data,
+        response_col=response_col,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        model_cols=(time_col, interval_col, *cycle_cols),
+    )
+    point_fit = fit_dark_retention(
+        sufficient,
+        shot_cols=shot_cols,
+        **fit_kwargs,
+    )
+    bootstrap_fit_kwargs = {
+        **fit_kwargs,
+        "initial_parameters": point_fit.parameter_dict(),
+        "n_starts": 1,
+    }
+
+    def parameters(fit: DarkRetentionFit) -> dict[str, float]:
+        values = fit.parameter_dict()
+        later = [
+            interval
+            for interval in fit.interval_levels
+            if interval != fit.first_interval
+        ]
+        values["apparent_later_interval_fixed_loss"] = float(
+            1.0 - np.mean([fit.q_by_interval[interval] for interval in later])
+        )
+        return values
+
+    def statistic(sample: pd.DataFrame) -> dict[str, float]:
+        active_shot_cols: str | Sequence[str] = (
+            "_bootstrap_cluster_id"
+            if "_bootstrap_cluster_id" in sample.columns
+            else shot_cols
+        )
+        fit = fit_dark_retention(
+            sample, shot_cols=active_shot_cols, **bootstrap_fit_kwargs
+        )
+        return parameters(fit)
+
+    return whole_cycle_cluster_bootstrap(
+        sufficient,
+        statistic,
+        n_boot=n_boot,
+        seed=seed,
+        confidence=confidence,
+        cycle_cols=cycle_cols,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+    )
+
+
+def bootstrap_bright_decay_by_cycle(
+    data: pd.DataFrame,
+    *,
+    n_boot: int = 1000,
+    seed: int = 0,
+    confidence: float = 0.95,
+    cycle_cols: str | Sequence[str] = ("run_id", "cycle_index"),
+    shot_cols: str | Sequence[str] = ("run_id", "shot_id"),
+    condition_cols: str | Sequence[str] = "condition_id",
+    **fit_kwargs: Any,
+) -> ClusterBootstrapResult:
+    """Whole-cycle sensitivity for effective bright-wait decay."""
+    cycle_cols = _as_tuple(cycle_cols)
+    shot_cols = _as_tuple(shot_cols)
+    condition_cols = _as_tuple(condition_cols)
+    response_col = str(fit_kwargs.get("response_col", "apparent_occupied"))
+    time_col = str(fit_kwargs.get("time_col", "sweep_value_s"))
+    sufficient = _aggregate_shot_binomial(
+        data,
+        response_col=response_col,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        model_cols=(time_col, *cycle_cols),
+    )
+    point_fit = fit_bright_decay(
+        sufficient,
+        shot_cols=shot_cols,
+        **fit_kwargs,
+    )
+    bootstrap_fit_kwargs = {
+        **fit_kwargs,
+        "initial_parameters": point_fit.parameter_dict(),
+        "n_starts": 1,
+    }
+
+    def parameters(fit: BrightDecayFit) -> dict[str, float]:
+        values = fit.parameter_dict()
+        values["predicted_50ms_loss"] = float(
+            constant_rate_loss(fit.lambda_bright_effective, 0.05)
+        )
+        return values
+
+    def statistic(sample: pd.DataFrame) -> dict[str, float]:
+        active_shot_cols: str | Sequence[str] = (
+            "_bootstrap_cluster_id"
+            if "_bootstrap_cluster_id" in sample.columns
+            else shot_cols
+        )
+        fit = fit_bright_decay(
+            sample, shot_cols=active_shot_cols, **bootstrap_fit_kwargs
+        )
+        return parameters(fit)
+
+    return whole_cycle_cluster_bootstrap(
+        sufficient,
+        statistic,
+        n_boot=n_boot,
+        seed=seed,
+        confidence=confidence,
+        cycle_cols=cycle_cols,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+    )
+
+
+@dataclass(frozen=True)
+class MultiStartBootstrapDiagnostic:
+    """Comparison of anchored one-start and multi-start bootstrap refits."""
+
+    rows: pd.DataFrame
+    failures: tuple[dict[str, Any], ...]
+    n_requested: int
+    n_successful: int
+    n_failed: int
+    seed: int
+    n_starts: int
+    objective_tolerance: float
+    relative_parameter_tolerance: float
+
+    @property
+    def materially_distinct_modes(self) -> int:
+        if self.rows.empty:
+            return 0
+        return int(self.rows["materially_distinct_mode"].astype(bool).sum())
+
+    @property
+    def passed(self) -> bool:
+        return self.n_successful > 0 and self.materially_distinct_modes == 0
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "n_requested": self.n_requested,
+            "n_successful": self.n_successful,
+            "n_failed": self.n_failed,
+            "seed": self.seed,
+            "n_starts": self.n_starts,
+            "objective_tolerance": self.objective_tolerance,
+            "relative_parameter_tolerance": self.relative_parameter_tolerance,
+            "max_objective_improvement": (
+                None
+                if self.rows.empty
+                else float(self.rows["objective_improvement"].max())
+            ),
+            "max_absolute_parameter_difference": (
+                None
+                if self.rows.empty
+                else float(self.rows["max_absolute_parameter_difference"].max())
+            ),
+            "max_relative_parameter_difference": (
+                None
+                if self.rows.empty
+                else float(self.rows["max_relative_parameter_difference"].max())
+            ),
+            "one_start_boundary_hits": (
+                0
+                if self.rows.empty
+                else int(self.rows["one_start_boundary"].astype(bool).sum())
+            ),
+            "multi_start_boundary_hits": (
+                0
+                if self.rows.empty
+                else int(self.rows["multi_start_boundary"].astype(bool).sum())
+            ),
+            "materially_distinct_modes": self.materially_distinct_modes,
+            "passed": self.passed,
+            "failures": list(self.failures),
+        }
+
+
+def _multistart_bootstrap_diagnostic(
+    data: pd.DataFrame,
+    *,
+    point_fit: Any,
+    fitter: Callable[..., Any],
+    n_replicates: int,
+    seed: int,
+    n_starts: int,
+    shot_cols: tuple[str, ...],
+    condition_cols: tuple[str, ...],
+    objective_tolerance: float,
+    relative_parameter_tolerance: float,
+    max_fail_fraction: float,
+) -> MultiStartBootstrapDiagnostic:
+    if n_replicates < 50:
+        raise ValueError("multi-start diagnostic requires at least 50 replicates")
+    if n_starts < 3:
+        raise ValueError("multi-start diagnostic requires at least 3 starts")
+    if objective_tolerance <= 0.0 or relative_parameter_tolerance <= 0.0:
+        raise ValueError("multi-start diagnostic tolerances must be positive")
+
+    rng = np.random.default_rng(seed)
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    initial = point_fit.parameter_dict()
+    for replicate in range(n_replicates):
+        try:
+            sample = resample_shot_clusters(
+                data,
+                rng=rng,
+                shot_cols=shot_cols,
+                condition_cols=condition_cols,
+            )
+            one = fitter(
+                sample,
+                shot_cols="_bootstrap_cluster_id",
+                initial_parameters=initial,
+                n_starts=1,
+            )
+            multi = fitter(
+                sample,
+                shot_cols="_bootstrap_cluster_id",
+                initial_parameters=initial,
+                n_starts=n_starts,
+            )
+            one_parameters = one.parameter_dict()
+            multi_parameters = multi.parameter_dict()
+            if one_parameters.keys() != multi_parameters.keys():
+                raise ValueError("one- and multi-start parameter names differ")
+            differences = {
+                name: float(one_parameters[name] - multi_parameters[name])
+                for name in one_parameters
+            }
+            absolute = {
+                name: abs(value) for name, value in differences.items()
+            }
+            relative = {
+                name: absolute[name]
+                / max(abs(float(multi_parameters[name])), 1e-8)
+                for name in differences
+            }
+            objective_improvement = float(one.train_nll - multi.train_nll)
+            max_absolute = max(absolute.values(), default=0.0)
+            max_relative = max(relative.values(), default=0.0)
+            boundary_changed = bool(
+                one.parameter_on_boundary != multi.parameter_on_boundary
+            )
+            distinct = bool(
+                objective_improvement > objective_tolerance
+                or max_relative > relative_parameter_tolerance
+                or boundary_changed
+            )
+            rows.append(
+                {
+                    "replicate": int(replicate),
+                    "one_start_nll": float(one.train_nll),
+                    "multi_start_nll": float(multi.train_nll),
+                    "objective_improvement": objective_improvement,
+                    "max_absolute_parameter_difference": max_absolute,
+                    "max_relative_parameter_difference": max_relative,
+                    "one_start_boundary": bool(one.parameter_on_boundary),
+                    "multi_start_boundary": bool(multi.parameter_on_boundary),
+                    "boundary_status_changed": boundary_changed,
+                    "materially_distinct_mode": distinct,
+                    "parameter_differences": differences,
+                }
+            )
+        except (ArithmeticError, FloatingPointError, RuntimeError, ValueError) as exc:
+            failures.append(
+                {
+                    "replicate": int(replicate),
+                    "exception": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
+    if len(failures) / n_replicates > max_fail_fraction:
+        raise RuntimeError(
+            f"{len(failures)}/{n_replicates} multi-start diagnostics failed"
+        )
+    return MultiStartBootstrapDiagnostic(
+        rows=pd.DataFrame(rows),
+        failures=tuple(failures),
+        n_requested=int(n_replicates),
+        n_successful=len(rows),
+        n_failed=len(failures),
+        seed=int(seed),
+        n_starts=int(n_starts),
+        objective_tolerance=float(objective_tolerance),
+        relative_parameter_tolerance=float(relative_parameter_tolerance),
+    )
+
+
+def diagnose_dark_bootstrap_multistart(
+    data: pd.DataFrame,
+    *,
+    n_replicates: int = 100,
+    seed: int = 0,
+    n_starts: int = 5,
+    shot_cols: str | Sequence[str] = ("run_id", "shot_id"),
+    condition_cols: str | Sequence[str] = "condition_id",
+    objective_tolerance: float = 1e-6,
+    relative_parameter_tolerance: float = 1e-2,
+    max_fail_fraction: float = 0.1,
+    **fit_kwargs: Any,
+) -> MultiStartBootstrapDiagnostic:
+    """Recheck a deterministic subset of dark bootstrap refits."""
+    shot_cols = _as_tuple(shot_cols)
+    condition_cols = _as_tuple(condition_cols)
+    response_col = str(fit_kwargs.get("response_col", "retained_next"))
+    time_col = str(fit_kwargs.get("time_col", "sweep_value_s"))
+    interval_col = str(fit_kwargs.get("interval_col", "interval"))
+    sufficient = _aggregate_shot_binomial(
+        data,
+        response_col=response_col,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        model_cols=(time_col, interval_col),
+    )
+    point_fit = fit_dark_retention(
+        sufficient, shot_cols=shot_cols, **fit_kwargs
+    )
+
+    def fitter(sample: pd.DataFrame, **kwargs: Any) -> DarkRetentionFit:
+        return fit_dark_retention(sample, **fit_kwargs, **kwargs)
+
+    return _multistart_bootstrap_diagnostic(
+        sufficient,
+        point_fit=point_fit,
+        fitter=fitter,
+        n_replicates=n_replicates,
+        seed=seed,
+        n_starts=n_starts,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        objective_tolerance=objective_tolerance,
+        relative_parameter_tolerance=relative_parameter_tolerance,
+        max_fail_fraction=max_fail_fraction,
+    )
+
+
+def diagnose_bright_bootstrap_multistart(
+    data: pd.DataFrame,
+    *,
+    n_replicates: int = 100,
+    seed: int = 0,
+    n_starts: int = 5,
+    shot_cols: str | Sequence[str] = ("run_id", "shot_id"),
+    condition_cols: str | Sequence[str] = "condition_id",
+    objective_tolerance: float = 1e-6,
+    relative_parameter_tolerance: float = 1e-2,
+    max_fail_fraction: float = 0.1,
+    **fit_kwargs: Any,
+) -> MultiStartBootstrapDiagnostic:
+    """Recheck a deterministic subset of bright bootstrap refits."""
+    shot_cols = _as_tuple(shot_cols)
+    condition_cols = _as_tuple(condition_cols)
+    response_col = str(fit_kwargs.get("response_col", "apparent_occupied"))
+    time_col = str(fit_kwargs.get("time_col", "sweep_value_s"))
+    sufficient = _aggregate_shot_binomial(
+        data,
+        response_col=response_col,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        model_cols=(time_col,),
+    )
+    point_fit = fit_bright_decay(
+        sufficient, shot_cols=shot_cols, **fit_kwargs
+    )
+
+    def fitter(sample: pd.DataFrame, **kwargs: Any) -> BrightDecayFit:
+        return fit_bright_decay(sample, **fit_kwargs, **kwargs)
+
+    return _multistart_bootstrap_diagnostic(
+        sufficient,
+        point_fit=point_fit,
+        fitter=fitter,
+        n_replicates=n_replicates,
+        seed=seed,
+        n_starts=n_starts,
+        shot_cols=shot_cols,
+        condition_cols=condition_cols,
+        objective_tolerance=objective_tolerance,
+        relative_parameter_tolerance=relative_parameter_tolerance,
+        max_fail_fraction=max_fail_fraction,
     )
 
 

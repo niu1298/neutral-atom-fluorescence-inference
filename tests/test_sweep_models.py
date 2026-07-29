@@ -6,7 +6,9 @@ import pandas as pd
 import pytest
 
 from fluorescence_inference.sweep_models import (
+    bootstrap_bright_decay_by_cycle,
     bootstrap_dark_retention,
+    bootstrap_dark_retention_by_cycle,
     bootstrap_rate_ratio,
     bright_sensitivity_table,
     compare_bright_models,
@@ -14,6 +16,7 @@ from fluorescence_inference.sweep_models import (
     compare_dark_models,
     constant_rate_loss,
     dark_sensitivity_table,
+    diagnose_bright_bootstrap_multistart,
     exact_multiplicative_loss,
     fit_bright_decay,
     fit_control_retention,
@@ -313,3 +316,55 @@ def test_sensitivity_tables_record_declared_variants():
     bright_table = bright_sensitivity_table(bright_variants, model="no_floor")
     assert set(bright_table["sensitivity_variant"]) == set(bright_variants)
     assert "lambda_bright_effective" in bright_table
+
+
+def test_model_cycle_bootstraps_keep_distinct_declared_seeds():
+    n_repetitions = 10
+    dark = _dark_events(n_repetitions=n_repetitions, n_sites=3)
+    dark["cycle_index"] = dark["shot_id"] % n_repetitions
+    dark = dark.loc[dark["split"] != "test"].copy()
+    bright = _bright_calls(n_repetitions=n_repetitions, n_sites=3)
+    bright["cycle_index"] = bright["shot_id"] % n_repetitions
+    bright = bright.loc[bright["split"] != "test"].copy()
+
+    dark_result = bootstrap_dark_retention_by_cycle(
+        dark,
+        model="shared",
+        split_col=None,
+        n_boot=12,
+        seed=731,
+    )
+    bright_result = bootstrap_bright_decay_by_cycle(
+        bright,
+        model="no_floor",
+        split_col=None,
+        n_boot=12,
+        seed=831,
+    )
+
+    assert dark_result.seed != bright_result.seed
+    assert dark_result.n_failed == 0
+    assert bright_result.n_failed == 0
+    assert "apparent_later_interval_fixed_loss" in dark_result.draws
+    assert "predicted_50ms_loss" in bright_result.draws
+
+
+def test_multistart_bootstrap_subset_is_deterministic_and_has_three_starts():
+    bright = _bright_calls(n_repetitions=10, n_sites=3)
+    bright = bright.loc[bright["split"] != "test"].copy()
+    kwargs = {
+        "model": "no_floor",
+        "split_col": None,
+        "n_replicates": 50,
+        "n_starts": 3,
+        "seed": 419,
+    }
+    first = diagnose_bright_bootstrap_multistart(bright, **kwargs)
+    second = diagnose_bright_bootstrap_multistart(bright, **kwargs)
+
+    pd.testing.assert_frame_equal(first.rows, second.rows)
+    assert first.n_requested == 50
+    assert first.n_starts >= 3
+    assert first.n_failed == 0
+    assert first.materially_distinct_modes == 0
+    assert first.passed

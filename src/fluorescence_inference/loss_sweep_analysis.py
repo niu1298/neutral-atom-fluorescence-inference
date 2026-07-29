@@ -37,11 +37,15 @@ from .latent_state import (
 from .splits import SEEDED_STRATEGY, attach_split, build_cycle_split_manifest
 from .sweep_models import (
     bootstrap_bright_decay,
+    bootstrap_bright_decay_by_cycle,
     bootstrap_control_retention,
     bootstrap_dark_retention,
+    bootstrap_dark_retention_by_cycle,
     compare_bright_models,
     compare_control_models,
     compare_dark_models,
+    diagnose_bright_bootstrap_multistart,
+    diagnose_dark_bootstrap_multistart,
     exact_multiplicative_loss,
     fit_bright_decay,
     fit_control_retention,
@@ -105,6 +109,24 @@ def _interval_lookup(intervals: pd.DataFrame) -> dict[str, dict[str, float]]:
             "n_bootstrap": int(row["n_bootstrap"]),
         }
         for row in intervals.to_dict(orient="records")
+    }
+
+
+def _invert_positive_rate_interval(
+    rate_interval: Mapping[str, float] | None,
+) -> dict[str, float] | None:
+    """Transform a positive rate interval into its reciprocal lifetime interval."""
+    if rate_interval is None:
+        return None
+    estimate = float(rate_interval["estimate"])
+    lower_rate = float(rate_interval["lower"])
+    upper_rate = float(rate_interval["upper"])
+    if estimate <= 0.0 or lower_rate <= 0.0 or upper_rate <= 0.0:
+        return None
+    return {
+        "estimate": 1.0 / estimate,
+        "lower": 1.0 / upper_rate,
+        "upper": 1.0 / lower_rate,
     }
 
 
@@ -378,6 +400,144 @@ def _selected_dark_rate(model: str) -> str | None:
     return None
 
 
+def _training_site_coordinates(scored: pd.DataFrame) -> pd.DataFrame:
+    """Return frozen training geometry after checking all split copies agree."""
+    coordinate_columns = ["site_row", "site_col", "site_y", "site_x"]
+    required = {"site_id", "split", *coordinate_columns}
+    missing = required - set(scored.columns)
+    if missing:
+        raise ValueError(f"site-coordinate rows are missing {sorted(missing)}")
+    coordinate_variants = (
+        scored[["site_id", "split", *coordinate_columns]]
+        .drop_duplicates()
+        .groupby("site_id", observed=True)[coordinate_columns]
+        .nunique(dropna=False)
+    )
+    if (coordinate_variants > 1).any().any():
+        raise ValueError("site coordinates differ across frozen shot splits")
+    coordinates = (
+        scored.loc[
+            scored["split"].astype(str) == "train",
+            ["site_id", *coordinate_columns],
+        ]
+        .drop_duplicates("site_id")
+        .sort_values("site_id", kind="stable")
+    )
+    if set(coordinates["site_id"]) != set(scored["site_id"].unique()):
+        raise ValueError("one or more held-out sites are absent from training geometry")
+    return coordinates
+
+
+def dark_endpoint_sensitivity(
+    development: pd.DataFrame,
+    *,
+    selected_model: str,
+    primary_fit: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Fit the four predeclared switch-off endpoint variants."""
+    if development.empty:
+        raise ValueError("endpoint sensitivity requires development rows")
+    minimum = development["sweep_value_s"].min()
+    maximum = development["sweep_value_s"].max()
+    variants = {
+        "all_points": development,
+        "exclude_shortest": development.loc[
+            development["sweep_value_s"] > minimum
+        ],
+        "exclude_longest": development.loc[
+            development["sweep_value_s"] < maximum
+        ],
+        "exclude_both": development.loc[
+            (development["sweep_value_s"] > minimum)
+            & (development["sweep_value_s"] < maximum)
+        ],
+    }
+
+    def values(fit) -> dict[str, Any]:
+        selected_rate_name = _selected_dark_rate(fit.model)
+        rate_group = (
+            None
+            if selected_rate_name is None
+            else selected_rate_name.removeprefix("lambda_switch_off__")
+        )
+        rate = (
+            None if rate_group is None else float(fit.lambda_groups[rate_group])
+        )
+        later = [
+            interval
+            for interval in fit.interval_levels
+            if interval != fit.first_interval
+        ]
+        later_loss = float(
+            1.0 - np.mean([fit.q_by_interval[interval] for interval in later])
+        )
+        return {
+            "lambda_switch_off": rate,
+            "tau_switch_off": (
+                None if rate is None or rate <= 0.0 else 1.0 / rate
+            ),
+            "fixed_interreadout_survival": {
+                str(key): float(value) for key, value in fit.q_by_interval.items()
+            },
+            "later_interval_apparent_loss": later_loss,
+        }
+
+    primary_fit = primary_fit or fit_dark_retention(
+        development, model=selected_model, split_col=None
+    )
+    primary = values(primary_fit)
+    rows: list[dict[str, Any]] = []
+    for name, table in variants.items():
+        included = sorted(
+            float(value) for value in table["sweep_value_s"].unique()
+        )
+        try:
+            fit = fit_dark_retention(
+                table, model=selected_model, split_col=None
+            )
+            fitted = values(fit)
+            rows.append(
+                {
+                    "variant": name,
+                    "included_conditions_s": included,
+                    **fitted,
+                    "difference_from_primary": {
+                        key: (
+                            None
+                            if fitted[key] is None or primary[key] is None
+                            else float(fitted[key] - primary[key])
+                        )
+                        for key in (
+                            "lambda_switch_off",
+                            "tau_switch_off",
+                            "later_interval_apparent_loss",
+                        )
+                    },
+                    "fit_success": bool(fit.converged),
+                    "parameter_on_boundary": bool(fit.parameter_on_boundary),
+                    "optimizer_message": fit.optimizer_message,
+                    "interpretation": (
+                        "Endpoint sensitivity under the validation-frozen "
+                        f"{selected_model} structure."
+                    ),
+                }
+            )
+        except (RuntimeError, ValueError, FloatingPointError) as exc:
+            rows.append(
+                {
+                    "variant": name,
+                    "included_conditions_s": included,
+                    "fit_success": False,
+                    "fit_error": f"{type(exc).__name__}: {exc}",
+                    "interpretation": (
+                        "The predeclared endpoint sensitivity fit failed and "
+                        "was retained explicitly."
+                    ),
+                }
+            )
+    return rows
+
+
 def fit_dark_analysis(
     scored: pd.DataFrame,
     *,
@@ -390,6 +550,7 @@ def fit_dark_analysis(
         scored,
         frame_col="frame_index",
         condition_cols=("condition_id", "split"),
+        passthrough_cols=("cycle_index",),
     )
     train = events.loc[events["split"].astype(str) == "train"].copy()
     validation = events.loc[events["split"].astype(str) == "validation"].copy()
@@ -426,13 +587,29 @@ def fit_dark_analysis(
         and rate_ci["lower"] > 0.0
         and not final_fit.parameter_on_boundary
     )
-    tau_ci = None
-    if rate_ci and rate_ci["lower"] > 0.0:
-        tau_ci = {
-            "estimate": 1.0 / rate_ci["estimate"],
-            "lower": 1.0 / rate_ci["upper"],
-            "upper": 1.0 / rate_ci["lower"],
-        }
+    tau_ci = _invert_positive_rate_interval(rate_ci)
+
+    multistart = diagnose_dark_bootstrap_multistart(
+        development,
+        model=selected_name,
+        split_col=None,
+        n_replicates=50,
+        n_starts=5,
+        seed=seed,
+    )
+    if not multistart.passed:
+        raise RuntimeError(
+            "dark bootstrap multi-start diagnostic found a materially "
+            "distinct optimization mode"
+        )
+    cycle_seed = seed + 1000
+    cycle_bootstrap = bootstrap_dark_retention_by_cycle(
+        development,
+        model=selected_name,
+        split_col=None,
+        n_boot=n_boot,
+        seed=cycle_seed,
+    )
 
     curve = shot_cluster_curve(
         events,
@@ -448,11 +625,7 @@ def fit_dark_analysis(
         n_boot=n_boot,
         seed=seed + 14,
     )
-    site_coordinates = (
-        scored[["site_id", "site_row", "site_col"]]
-        .drop_duplicates("site_id")
-        .sort_values("site_id", kind="stable")
-    )
+    site_coordinates = _training_site_coordinates(scored)
     site_curve = site_curve.merge(
         site_coordinates,
         on="site_id",
@@ -507,6 +680,12 @@ def fit_dark_analysis(
                 {"variant": "exclude_predeclared_weak_sites", "fit_error": str(exc)}
             )
 
+    endpoint_rows = dark_endpoint_sensitivity(
+        development,
+        selected_model=selected_name,
+        primary_fit=final_fit,
+    )
+
     report = {
         "selected_model": selected_name,
         "model_selection": selection.table,
@@ -532,7 +711,34 @@ def fit_dark_analysis(
             "n_failed": bootstrap.n_failed,
             "seed": bootstrap.seed,
             "intervals": intervals,
+            "failures": bootstrap.failures,
         },
+        "whole_cycle_bootstrap_sensitivity": {
+            "unit": "complete acquisition cycle",
+            "primary_condition_stratified_seed": bootstrap.seed,
+            "seed": cycle_bootstrap.seed,
+            "seeds_are_distinct": cycle_bootstrap.seed != bootstrap.seed,
+            "n_requested": cycle_bootstrap.n_requested,
+            "n_successful": cycle_bootstrap.n_successful,
+            "n_failed": cycle_bootstrap.n_failed,
+            "intervals": cycle_bootstrap.intervals(),
+            "failures": cycle_bootstrap.failures,
+            "interpretation": (
+                "Sensitivity preserving repeated-cycle dependence across "
+                "conditions; the condition-stratified complete-shot bootstrap "
+                "remains primary."
+            ),
+        },
+        "bootstrap_multistart_diagnostic": {
+            **multistart.summary(),
+            "replicates": multistart.rows,
+            "subset_rule": (
+                "first 50 condition-stratified bootstrap replicates from the "
+                "primary bootstrap seed"
+            ),
+            "primary_one_start_bootstrap_retained": multistart.passed,
+        },
+        "endpoint_sensitivity": endpoint_rows,
         "sensitivity": pd.DataFrame(sensitivity_rows),
         "exact_loss_definition": "1 - q_j * exp(-lambda_switch_off * hold_s)",
         "interpretation": (
@@ -546,6 +752,8 @@ def fit_dark_analysis(
         "test_events": test,
         "fit": final_fit,
         "bootstrap": bootstrap,
+        "cycle_bootstrap": cycle_bootstrap,
+        "multistart_diagnostic": multistart,
         "selection": selection,
     }
 
@@ -587,6 +795,30 @@ def _control_model_band(fit, bootstrap, *, n_grid: int = 80) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _selected_kappa_semantics(
+    fit,
+    interval: Mapping[str, float],
+    *,
+    trend_resolved: bool,
+) -> dict[str, Any]:
+    """Serialize a flat structural zero separately from an estimated trend."""
+    if fit.model == "flat":
+        return {
+            "selected_structure": "flat",
+            "kappa_status": "structurally_fixed",
+            "kappa_fixed_value": 0.0,
+            "trend_resolved": False,
+        }
+    return {
+        "selected_structure": fit.model,
+        "kappa_status": "estimated_under_selected_monotone_structure",
+        "kappa_fixed_value": None,
+        "kappa_estimate": float(fit.kappa),
+        "kappa_sampling_interval": dict(interval),
+        "trend_resolved": bool(trend_resolved),
+    }
 
 
 def _shot_cycle_residual_slope(
@@ -655,18 +887,37 @@ def fit_bright_analysis(
     rate_ci = _interval_lookup(bootstrap.intervals())[
         "lambda_bright_effective"
     ]
-    tau_ci = None
-    if rate_ci["lower"] > 0.0:
-        tau_ci = {
-            "estimate": 1.0 / rate_ci["estimate"],
-            "lower": 1.0 / rate_ci["upper"],
-            "upper": 1.0 / rate_ci["lower"],
-        }
+    tau_ci = _invert_positive_rate_interval(rate_ci)
+    floor_sensitivity_fit = fit_bright_decay(
+        development, model="floor", split_col=None
+    )
+    multistart = diagnose_bright_bootstrap_multistart(
+        development,
+        model=selection.selected_name,
+        split_col=None,
+        n_replicates=50,
+        n_starts=5,
+        seed=seed,
+    )
+    if not multistart.passed:
+        raise RuntimeError(
+            "bright bootstrap multi-start diagnostic found a materially "
+            "distinct optimization mode"
+        )
+    cycle_seed = seed + 1000
+    cycle_bootstrap = bootstrap_bright_decay_by_cycle(
+        development,
+        model=selection.selected_name,
+        split_col=None,
+        n_boot=n_boot,
+        seed=cycle_seed,
+    )
 
     control_events = make_retention_events(
         scored,
         frame_col="frame_index",
         condition_cols=("condition_id", "split"),
+        passthrough_cols=("cycle_index",),
     )
     c_train = control_events.loc[
         control_events["split"].astype(str) == "train"
@@ -705,6 +956,26 @@ def fit_bright_analysis(
         control_fit.model == "monotone"
         and kappa_ci["lower"] > 0.0
         and not control_fit.parameter_on_boundary
+    )
+    monotone_sensitivity_fit = fit_control_retention(
+        c_development,
+        model="monotone",
+        split_col=None,
+    )
+    monotone_sensitivity_bootstrap = bootstrap_control_retention(
+        c_development,
+        model="monotone",
+        split_col=None,
+        n_boot=n_boot,
+        seed=seed + 2,
+    )
+    monotone_intervals = _interval_lookup(
+        monotone_sensitivity_bootstrap.intervals()
+    )
+    monotone_kappa = monotone_intervals["post_wait_retention_kappa"]
+    monotone_trend_resolved = bool(
+        monotone_kappa["lower"] > 0.0
+        and not monotone_sensitivity_fit.parameter_on_boundary
     )
 
     occupancy_curve = shot_cluster_curve(
@@ -758,6 +1029,11 @@ def fit_bright_analysis(
         "cycle_drift_sensitivity": _shot_cycle_residual_slope(first, final_fit),
         "post_wait_control": {
             "selected_model": control_selection.selected_name,
+            **_selected_kappa_semantics(
+                control_fit,
+                kappa_ci,
+                trend_resolved=control_trend_resolved,
+            ),
             "model_selection": control_selection.table,
             "test_scored_once": {
                 "nll": control_test_nll,
@@ -766,13 +1042,36 @@ def fit_bright_analysis(
                 "n_independent_shots": _shot_count(c_test),
             },
             "q_0": control_intervals["post_wait_retention_q_0"],
-            "kappa": kappa_ci,
-            "trend_resolved": control_trend_resolved,
+            "alternative_model_sensitivity": {
+                "structure": "monotone",
+                "selected_on_validation": False,
+                "q_0": monotone_intervals["post_wait_retention_q_0"],
+                "kappa": monotone_kappa,
+                "trend_resolved": monotone_trend_resolved,
+                "parameter_on_boundary": (
+                    monotone_sensitivity_fit.parameter_on_boundary
+                ),
+                "bootstrap": {
+                    "unit": "complete shot within condition",
+                    "n_requested": monotone_sensitivity_bootstrap.n_requested,
+                    "n_successful": (
+                        monotone_sensitivity_bootstrap.n_successful
+                    ),
+                    "n_failed": monotone_sensitivity_bootstrap.n_failed,
+                    "seed": monotone_sensitivity_bootstrap.seed,
+                    "failures": monotone_sensitivity_bootstrap.failures,
+                },
+                "interpretation": (
+                    "Alternative-model sensitivity only; it did not determine "
+                    "the selected structure and does not identify heating."
+                ),
+            },
             "clustered_curve": control_curve,
             "model_band": _control_model_band(control_fit, control_bootstrap),
             "interpretation": (
-                "A resolved trend indicates wait-dependent survivor state or "
-                "classification change; it is not a direct heating measurement."
+                "Validation selected a flat post-wait retention model. Kappa "
+                "is fixed to zero by that selected structure; the data do not "
+                "resolve a monotone post-wait trend."
             ),
         },
         "bootstrap": {
@@ -782,6 +1081,55 @@ def fit_bright_analysis(
             "n_failed": bootstrap.n_failed,
             "seed": bootstrap.seed,
             "intervals": bootstrap.intervals(),
+            "failures": bootstrap.failures,
+        },
+        "whole_cycle_bootstrap_sensitivity": {
+            "unit": "complete acquisition cycle",
+            "primary_condition_stratified_seed": bootstrap.seed,
+            "seed": cycle_bootstrap.seed,
+            "seeds_are_distinct": cycle_bootstrap.seed != bootstrap.seed,
+            "n_requested": cycle_bootstrap.n_requested,
+            "n_successful": cycle_bootstrap.n_successful,
+            "n_failed": cycle_bootstrap.n_failed,
+            "intervals": cycle_bootstrap.intervals(),
+            "failures": cycle_bootstrap.failures,
+            "interpretation": (
+                "Sensitivity preserving repeated-cycle dependence across "
+                "conditions; the condition-stratified complete-shot bootstrap "
+                "remains primary."
+            ),
+        },
+        "bootstrap_multistart_diagnostic": {
+            **multistart.summary(),
+            "replicates": multistart.rows,
+            "subset_rule": (
+                "first 50 condition-stratified bootstrap replicates from the "
+                "primary bootstrap seed"
+            ),
+            "primary_one_start_bootstrap_retained": multistart.passed,
+        },
+        "unresolved_floor_structure": {
+            "fit_scope": (
+                "training_plus_validation_after candidate structures were "
+                "declared; test data were not used"
+            ),
+            "pi_0": floor_sensitivity_fit.pi_0,
+            "pi_floor": floor_sensitivity_fit.pi_floor,
+            "lambda_bright_effective": (
+                floor_sensitivity_fit.lambda_bright_effective
+            ),
+            "tau_bright_effective": floor_sensitivity_fit.tau_bright_effective,
+            "predicted_50ms_loss": float(
+                1.0
+                - np.exp(
+                    -floor_sensitivity_fit.lambda_bright_effective * 0.05
+                )
+            ),
+            "selected_on_validation": False,
+            "interpretation": (
+                "Unresolved model-structure sensitivity, not a confidence "
+                "interval and not a replacement selected using test data."
+            ),
         },
         "sensitivity": pd.DataFrame(sensitivity_rows),
         "interpretation": (
@@ -794,7 +1142,10 @@ def fit_bright_analysis(
         "development_first": development,
         "test_first": test,
         "fit": final_fit,
+        "floor_sensitivity_fit": floor_sensitivity_fit,
         "bootstrap": bootstrap,
+        "cycle_bootstrap": cycle_bootstrap,
+        "multistart_diagnostic": multistart,
         "selection": selection,
         "control_events": control_events,
         "control_fit": control_fit,
@@ -1252,7 +1603,7 @@ def compare_datasets(
     discrepancy_resolved = bool(
         len(gap) and np.quantile(gap, 0.025) > 0.0
     )
-    return {
+    report = {
         "rate_ratio_available": bool(len(ratio)),
         "lambda_bright_over_lambda_switch_off": summary(ratio, point_ratio),
         "bright_model_predicted_loss_over_50ms": summary(
@@ -1269,7 +1620,7 @@ def compare_datasets(
         "simple_bright_model_explains_full_interreadout_loss": False,
         "allowed_conclusion": (
             "The simple constant-rate bright-wait model does not explain the "
-            "full inter-readout loss."
+            "full apparent inter-readout loss."
             if discrepancy_resolved
             else "The current clustered interval does not resolve a discrepancy."
         ),
@@ -1278,6 +1629,156 @@ def compare_datasets(
         "pooling_reason": (
             "Separate acquisitions have a one-pitch coordinate shift, distinct "
             "background trajectories, and no randomized cross-sequence control."
+        ),
+    }
+    floor_fit = bright_context.get("floor_sensitivity_fit")
+    if floor_fit is not None:
+        alternative_predicted = float(
+            1.0 - np.exp(-floor_fit.lambda_bright_effective * 0.05)
+        )
+        alternative_gap = point_fixed_loss - alternative_predicted
+        selected_gap_pp = 100.0 * point_gap
+        alternative_gap_pp = 100.0 * alternative_gap
+        report["structural_sensitivity"] = {
+            "selected_structure": bright_fit.model,
+            "selected_predicted_loss_percentage": 100.0 * point_predicted,
+            "selected_gap_percentage_points": selected_gap_pp,
+            "selected_sampling_ci_percentage_points": [
+                100.0 * float(np.quantile(gap, 0.025)),
+                100.0 * float(np.quantile(gap, 0.975)),
+            ],
+            "alternative_structure": "floor",
+            "alternative_fit_scope": (
+                "training_plus_validation after validation-frozen candidate "
+                "definition; test data were not used"
+            ),
+            "alternative_floor": float(floor_fit.pi_floor),
+            "alternative_effective_rate_per_s": float(
+                floor_fit.lambda_bright_effective
+            ),
+            "alternative_predicted_loss_percentage": (
+                100.0 * alternative_predicted
+            ),
+            "alternative_gap_percentage_points": alternative_gap_pp,
+            "structural_range_percentage_points": sorted(
+                [selected_gap_pp, alternative_gap_pp]
+            ),
+            "gap_sign_positive_under_both_structures": bool(
+                point_gap > 0.0 and alternative_gap > 0.0
+            ),
+            "interpretation": (
+                "The selected interval is complete-shot sampling uncertainty "
+                "conditional on the no-floor structure. The range across the "
+                "selected and unresolved floor structures is model-structure "
+                "sensitivity, not a confidence interval or total uncertainty."
+            ),
+        }
+    return report
+
+
+def compare_cycle_bootstraps(
+    dark_context: Mapping[str, Any],
+    bright_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Cross-dataset sensitivity under complete acquisition-cycle resampling."""
+    dark_fit = dark_context["fit"]
+    bright_fit = bright_context["fit"]
+    dark_boot = dark_context["cycle_bootstrap"]
+    bright_boot = bright_context["cycle_bootstrap"]
+    dark_parameter = _selected_dark_rate(dark_fit.model)
+    if dark_parameter is None:
+        return {
+            "available": False,
+            "reason": "selected dark structure has no single comparable rate",
+            "qualitative_conclusion_consistent": False,
+        }
+    n = min(len(dark_boot.draws), len(bright_boot.draws))
+    dark_rate = dark_boot.draws[dark_parameter].to_numpy(float)[:n]
+    bright_rate = bright_boot.draws[
+        "lambda_bright_effective"
+    ].to_numpy(float)[:n]
+    predicted = bright_boot.draws["predicted_50ms_loss"].to_numpy(float)[:n]
+    later_loss = dark_boot.draws[
+        "apparent_later_interval_fixed_loss"
+    ].to_numpy(float)[:n]
+    gap = later_loss - predicted
+
+    def interval(values: np.ndarray, estimate: float) -> dict[str, Any]:
+        finite = values[np.isfinite(values)]
+        return {
+            "estimate": float(estimate),
+            "lower": (
+                None if not len(finite) else float(np.quantile(finite, 0.025))
+            ),
+            "upper": (
+                None if not len(finite) else float(np.quantile(finite, 0.975))
+            ),
+            "n_successful_joint_draws": int(len(finite)),
+        }
+
+    rate_group = dark_parameter.removeprefix("lambda_switch_off__")
+    point_dark_rate = float(dark_fit.lambda_groups[rate_group])
+    point_bright_rate = float(bright_fit.lambda_bright_effective)
+    point_predicted = float(1.0 - np.exp(-point_bright_rate * 0.05))
+    later = [
+        value
+        for value in dark_fit.interval_levels
+        if value != dark_fit.first_interval
+    ]
+    point_later_loss = float(
+        1.0 - np.mean([dark_fit.q_by_interval[value] for value in later])
+    )
+    point_gap = point_later_loss - point_predicted
+    dark_interval = interval(dark_rate, point_dark_rate)
+    tau_values = np.divide(
+        1.0,
+        dark_rate,
+        out=np.full_like(dark_rate, np.nan),
+        where=dark_rate > 0.0,
+    )
+    tau_interval = interval(tau_values, 1.0 / point_dark_rate)
+    bright_interval = interval(bright_rate, point_bright_rate)
+    predicted_interval = interval(predicted, point_predicted)
+    later_interval = interval(later_loss, point_later_loss)
+    gap_interval = interval(gap, point_gap)
+    resolved_rates = bool(
+        dark_interval["lower"] is not None
+        and dark_interval["lower"] > 0.0
+        and bright_interval["lower"] is not None
+        and bright_interval["lower"] > 0.0
+    )
+    positive_gap = bool(
+        gap_interval["lower"] is not None and gap_interval["lower"] > 0.0
+    )
+    return {
+        "available": True,
+        "unit": "complete acquisition cycle within each run",
+        "dark_seed": dark_boot.seed,
+        "bright_seed": bright_boot.seed,
+        "seeds_are_distinct": dark_boot.seed != bright_boot.seed,
+        "dark_n_requested": dark_boot.n_requested,
+        "dark_n_successful": dark_boot.n_successful,
+        "dark_n_failed": dark_boot.n_failed,
+        "dark_failures": dark_boot.failures,
+        "bright_n_requested": bright_boot.n_requested,
+        "bright_n_successful": bright_boot.n_successful,
+        "bright_n_failed": bright_boot.n_failed,
+        "bright_failures": bright_boot.failures,
+        "lambda_switch_off": dark_interval,
+        "tau_switch_off": tau_interval,
+        "lambda_bright_effective": bright_interval,
+        "predicted_50ms_loss": predicted_interval,
+        "later_interval_apparent_loss": later_interval,
+        "observed_minus_predicted_apparent_loss": gap_interval,
+        "rates_resolved": resolved_rates,
+        "apparent_gap_positive": positive_gap,
+        "qualitative_conclusion_consistent": bool(
+            resolved_rates and positive_gap
+        ),
+        "interpretation": (
+            "Sensitivity to dependence shared by repeated acquisition cycles; "
+            "it does not replace the primary condition-stratified complete-shot "
+            "sampling interval."
         ),
     }
 
@@ -1744,10 +2245,30 @@ def fit_latent_analysis(
             "complete_shot_cluster_bootstrap_available": False,
             "public_gate_requires_complete_shot_clustering": True,
         },
+        "physical_rate_gate_rationale": {
+            "held_out_likelihood_improvement_supports_predictive_structure": (
+                comparison.latent_predicts_better
+            ),
+            "complete_shot_clustered_transition_uncertainty_available": False,
+            "synthetic_rate_recovery_max_relative_error": float(
+                np.max(synthetic["rate_relative_error"])
+            ),
+            "transition_rate_weakly_identified_for_physical_claim": True,
+            "interpretation": (
+                "Held-out likelihood improvement supports predictive sequence "
+                "structure, not a precise physical transition rate. Complete-"
+                "shot clustered transition uncertainty is absent and the "
+                "declared synthetic recovery experiment has approximately "
+                f"{100.0 * float(np.max(synthetic['rate_relative_error'])):.1f}% "
+                "relative rate error."
+            ),
+        },
         "representative_example": representative,
         "interpretation": (
-            "Predictive latent-state parameters remain conditional on the "
-            "stated model and are not empirical fidelity."
+            "Predictive latent-state structure improves held-out likelihood, "
+            "but the transition rate remains weakly identified for the intended "
+            "physical claim. Parameters remain conditional on the stated model "
+            "and are not empirical fidelity."
         ),
     }
     return jsonable(report), {
@@ -1987,6 +2508,19 @@ def run_loss_sweep_analysis(
         ]
 
     comparison = compare_datasets(dark_context, bright_context)
+    structural = comparison.get("structural_sensitivity")
+    if structural and not structural["gap_sign_positive_under_both_structures"]:
+        raise RuntimeError(
+            "the unresolved floor structure makes the apparent "
+            "observed-minus-predicted gap non-positive"
+        )
+    cycle_comparison = compare_cycle_bootstraps(dark_context, bright_context)
+    if not cycle_comparison.get("qualitative_conclusion_consistent"):
+        raise RuntimeError(
+            "whole-cycle bootstrap sensitivity does not support the "
+            "validation-frozen qualitative comparison"
+        )
+    comparison["whole_cycle_bootstrap_sensitivity"] = cycle_comparison
     comparison["public_comparison_gate_passed"] = bool(
         dark["public_rate_claim_gate_passed"]
         and bright["public_rate_claim_gate_passed"]
@@ -2082,7 +2616,9 @@ __all__ = [
     "PRIMARY_COUNT_COLUMN",
     "background_model_sensitivity",
     "background_occupancy_coupling",
+    "compare_cycle_bootstraps",
     "compare_datasets",
+    "dark_endpoint_sensitivity",
     "fit_bright_analysis",
     "fit_dark_analysis",
     "fit_emission_analysis",

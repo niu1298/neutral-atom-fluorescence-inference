@@ -1,7 +1,13 @@
 """Raw HDF5 timing, frame, condition, and leakage guards for 0044/0050."""
 from __future__ import annotations
 
+import sys
+import types
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from fluorescence_inference.config import load_config
@@ -108,6 +114,120 @@ def test_geometry_and_template_fit_selection_contains_only_training_shots(
     assert len(selected) == n_train
     assert selected_ids == train_ids
     assert selected_ids.isdisjoint(held_out_ids)
+
+
+def test_geometry_and_template_execution_path_receives_training_frames_only(
+    monkeypatch,
+):
+    from fluorescence_inference import dataset as dataset_module
+
+    class ExpectedStop(RuntimeError):
+        pass
+
+    class FakeConfig:
+        schema_version = "3.0"
+        frame_specs = ()
+
+        def __getitem__(self, key):
+            values = {
+                "source": {"expected_n_shots": 4},
+                "roi": {"trap_half_width": 1},
+                "background": {
+                    "mask_radius_px": 2.0,
+                    "hot_pixel_sigma": 6.0,
+                    "surface_degree": 2,
+                    "max_fit_pixels": 100,
+                },
+            }
+            return values[key]
+
+        def get(self, key, default=None):
+            if key == "extraction":
+                return {"fit_scope": "train"}
+            return default
+
+    paths = [Path(f"shot_{index}") for index in range(4)]
+    metas = [
+        SimpleNamespace(path=path, shot_id=index)
+        for index, path in enumerate(paths)
+    ]
+    manifest = pd.DataFrame(
+        {
+            "shot_id": range(4),
+            "split": ["train", "train", "validation", "test"],
+        }
+    )
+    monkeypatch.setattr(dataset_module, "discover_shots", lambda _cfg: paths)
+    monkeypatch.setattr(
+        dataset_module, "_frame_loader", lambda _cfg: (object(), "synthetic")
+    )
+    monkeypatch.setattr(
+        dataset_module, "ensure_rydlab_importable", lambda _cfg: None
+    )
+    monkeypatch.setattr(
+        dataset_module,
+        "read_shot_meta",
+        lambda _path, _cfg, order: metas[order],
+    )
+    monkeypatch.setattr(
+        dataset_module, "_validate_shot_metadata", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        dataset_module,
+        "_shot_design",
+        lambda *_args: (manifest, {}, {}),
+    )
+    grids = types.ModuleType("rydlab.atoms.grids")
+    grids.kmeans_2d = object()
+    atoms = types.ModuleType("rydlab.atoms")
+    atoms.grids = grids
+    rydlab = types.ModuleType("rydlab")
+    rydlab.atoms = atoms
+    monkeypatch.setitem(sys.modules, "rydlab", rydlab)
+    monkeypatch.setitem(sys.modules, "rydlab.atoms", atoms)
+    monkeypatch.setitem(sys.modules, "rydlab.atoms.grids", grids)
+
+    def training_accumulator(selected_paths, _cfg, _load):
+        assert list(selected_paths) == paths[:2]
+        return (
+            np.full((4, 4), 12.0),
+            np.full((4, 4), 30.0),
+            6,
+            {},
+        )
+
+    monkeypatch.setattr(
+        dataset_module, "accumulate_variance", training_accumulator
+    )
+    monkeypatch.setattr(
+        dataset_module,
+        "variance_map",
+        lambda *_args: np.full((4, 4), 99.0),
+    )
+
+    def training_geometry(_cfg, mean, variance, **_kwargs):
+        assert np.all(mean == 2.0)
+        assert np.all(variance == 99.0)
+        return SimpleNamespace(centers_yx=np.array([[1.0, 1.0]]))
+
+    monkeypatch.setattr(
+        dataset_module, "build_configured_site_map", training_geometry
+    )
+    monkeypatch.setattr(
+        dataset_module.bm,
+        "build_site_mask",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+
+    def training_template(reference_image, *_args, **_kwargs):
+        assert np.all(reference_image == 2.0)
+        raise ExpectedStop("geometry and template inputs verified")
+
+    monkeypatch.setattr(
+        dataset_module.bm, "build_fixed_template", training_template
+    )
+    with pytest.raises(ExpectedStop, match="inputs verified"):
+        dataset_module.build_frame_site_table(FakeConfig(), progress=False)
 
 
 def test_v3_row_timing_keeps_unmeasured_hardware_fields_null(repo_root):

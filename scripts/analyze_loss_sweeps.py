@@ -72,6 +72,35 @@ def _dependency_commit(cfg) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _resolve_analysis_code_commit(
+    requested: str | None,
+    repository_state: dict[str, Any],
+) -> str:
+    """Resolve the immutable analysis-code revision recorded in the result."""
+    if requested is None:
+        commit = repository_state.get("commit")
+        if not isinstance(commit, str) or len(commit) != 40:
+            raise ValueError("cannot resolve the analysis-code commit")
+        return commit
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{requested}^{{commit}}"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("cannot validate --analysis-code-commit") from exc
+    commit = result.stdout.strip()
+    if result.returncode != 0 or len(commit) != 40:
+        raise ValueError(
+            "--analysis-code-commit does not identify a full Git commit"
+        )
+    return commit
+
+
 def _condition_split_counts(data: pd.DataFrame) -> list[dict[str, Any]]:
     table = (
         data[
@@ -318,6 +347,76 @@ def _config_provenance(cfg, meta: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _provenance_seeds(
+    analysis: dict[str, Any],
+    *,
+    primary_seed: int,
+) -> dict[str, int]:
+    """Collect declared seeds from their serialized analysis blocks."""
+    paths = {
+        "dark_condition_bootstrap": (
+            "dark_hold",
+            "operational_model",
+            "bootstrap",
+            "seed",
+        ),
+        "bright_condition_bootstrap": (
+            "bright_wait",
+            "effective_model",
+            "bootstrap",
+            "seed",
+        ),
+        "dark_cycle_bootstrap": (
+            "dark_hold",
+            "operational_model",
+            "whole_cycle_bootstrap_sensitivity",
+            "seed",
+        ),
+        "bright_cycle_bootstrap": (
+            "bright_wait",
+            "effective_model",
+            "whole_cycle_bootstrap_sensitivity",
+            "seed",
+        ),
+        "dark_multistart_diagnostic": (
+            "dark_hold",
+            "operational_model",
+            "bootstrap_multistart_diagnostic",
+            "seed",
+        ),
+        "bright_multistart_diagnostic": (
+            "bright_wait",
+            "effective_model",
+            "bootstrap_multistart_diagnostic",
+            "seed",
+        ),
+        "bright_monotone_control_sensitivity": (
+            "bright_wait",
+            "effective_model",
+            "post_wait_control",
+            "alternative_model_sensitivity",
+            "bootstrap",
+            "seed",
+        ),
+    }
+    seeds = {"primary_analysis": int(primary_seed)}
+    for name, path in paths.items():
+        value: Any = analysis
+        for component in path:
+            if not isinstance(value, dict) or component not in value:
+                raise ValueError(
+                    "analysis result is missing declared seed at "
+                    + ".".join(path)
+                )
+            value = value[component]
+        if not isinstance(value, (int, np.integer)):
+            raise ValueError(
+                "analysis seed is not an integer at " + ".".join(path)
+            )
+        seeds[name] = int(value)
+    return seeds
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dark-config", default=DEFAULT_DARK_CONFIG)
@@ -353,11 +452,36 @@ def main() -> int:
     parser.add_argument("--bootstrap", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=20260728)
     parser.add_argument(
+        "--analysis-code-commit",
+        default=None,
+        help=(
+            "immutable code revision to record; verification runs may use the "
+            "earlier analysis commit after checking that code is unchanged"
+        ),
+    )
+    parser.add_argument(
+        "--require-clean-provenance",
+        action="store_true",
+        help="fail unless the generation worktree is clean before analysis",
+    )
+    parser.add_argument(
         "--skip-latent-gate",
         action="store_true",
         help="record the latent gate as not attempted",
     )
     args = parser.parse_args()
+    repository_state = git_describe(ROOT)
+    if args.require_clean_provenance and repository_state.get("dirty") is not False:
+        parser.error(
+            "--require-clean-provenance requires a clean Git working tree"
+        )
+    try:
+        analysis_code_commit = _resolve_analysis_code_commit(
+            args.analysis_code_commit,
+            repository_state,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     dark_cfg = load_config(args.dark_config)
     bright_cfg = load_config(args.bright_config)
@@ -453,7 +577,8 @@ def main() -> int:
         "selection_rule": background.get("selection_rule"),
     }
     analysis["provenance"] = {
-        "inference_repository": git_describe(ROOT),
+        "analysis_code_commit": analysis_code_commit,
+        "inference_repository": repository_state,
         "lab_analysis_repository_commit": _dependency_commit(dark_cfg),
         "dark_hold": _config_provenance(dark_cfg, dark_meta),
         "bright_wait": _config_provenance(bright_cfg, bright_meta),
@@ -464,6 +589,11 @@ def main() -> int:
             bright_command_audit_path
         ),
         "random_seed": int(args.seed),
+        "bootstrap_replicates": int(args.bootstrap),
+        "seeds": _provenance_seeds(
+            analysis,
+            primary_seed=args.seed,
+        ),
         "model_version": analysis["analysis_version"],
     }
 

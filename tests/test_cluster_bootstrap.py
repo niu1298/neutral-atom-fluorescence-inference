@@ -5,7 +5,9 @@ import numpy as np
 import pandas as pd
 from fluorescence_inference.cluster_bootstrap import (
     condition_stratified_cluster_bootstrap,
+    resample_cycle_blocks,
     resample_shot_clusters,
+    whole_cycle_cluster_bootstrap,
 )
 
 
@@ -74,3 +76,81 @@ def test_cluster_bootstrap_is_deterministic_and_reports_requested_interval():
     interval = a.intervals().iloc[0]
     assert interval["lower"] < interval["estimate"] < interval["upper"]
     assert interval["n_bootstrap"] == 40
+
+
+def test_cycle_resample_preserves_complete_cycles_conditions_and_shots():
+    data = _long_sweep(n_conditions=3, n_repetitions=5)
+    sample = resample_cycle_blocks(
+        data,
+        rng=np.random.default_rng(812),
+        cycle_cols=("run_id", "cycle"),
+    )
+    assert sample["_bootstrap_cycle_id"].nunique() == 5
+    for _, cycle in sample.groupby("_bootstrap_cycle_id"):
+        assert cycle["condition_id"].nunique() == 3
+        assert cycle["_bootstrap_source_cycle"].nunique() == 1
+        assert cycle["_bootstrap_cluster_id"].nunique() == 3
+        for _, shot in cycle.groupby("_bootstrap_cluster_id"):
+            assert shot["shot_id"].nunique() == 1
+            assert len(shot[["frame_index", "site_id"]].drop_duplicates()) == 15
+
+
+def test_cycle_bootstrap_is_deterministic_and_records_failed_refits():
+    data = _long_sweep(n_conditions=3, n_repetitions=6)
+
+    def deterministic_statistic(table):
+        return {"mean": float(table["value"].mean())}
+
+    first = whole_cycle_cluster_bootstrap(
+        data,
+        deterministic_statistic,
+        n_boot=20,
+        seed=91,
+        cycle_cols=("run_id", "cycle"),
+    )
+    second = whole_cycle_cluster_bootstrap(
+        data,
+        deterministic_statistic,
+        n_boot=20,
+        seed=91,
+        cycle_cols=("run_id", "cycle"),
+    )
+    pd.testing.assert_frame_equal(first.draws, second.draws)
+
+    calls = 0
+
+    def intermittently_failing(table):
+        nonlocal calls
+        calls += 1
+        if calls > 1 and calls % 3 == 0:
+            raise RuntimeError("declared synthetic refit failure")
+        return {"mean": float(table["value"].mean())}
+
+    result = whole_cycle_cluster_bootstrap(
+        data,
+        intermittently_failing,
+        n_boot=9,
+        seed=19,
+        cycle_cols=("run_id", "cycle"),
+        max_fail_fraction=0.5,
+    )
+    assert result.n_requested == 9
+    assert result.n_failed == 3
+    assert result.n_successful == 6
+    assert [failure["replicate"] for failure in result.failures] == [1, 4, 7]
+    assert all(
+        failure["exception"] == "RuntimeError" for failure in result.failures
+    )
+
+
+def test_cycle_resample_rejects_an_incomplete_condition_cycle():
+    data = _long_sweep(n_conditions=3, n_repetitions=4)
+    incomplete = data.loc[
+        ~((data["cycle"] == 2) & (data["condition_id"] == 1))
+    ]
+    with np.testing.assert_raises_regex(ValueError, "every condition"):
+        resample_cycle_blocks(
+            incomplete,
+            rng=np.random.default_rng(4),
+            cycle_cols=("run_id", "cycle"),
+        )
