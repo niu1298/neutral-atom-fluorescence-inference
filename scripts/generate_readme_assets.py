@@ -940,6 +940,13 @@ def main() -> int:
     ap.add_argument("--config", default="configs/paired_100ms.yaml")
     ap.add_argument("--skip-gif", action="store_true",
                     help="static figures and metrics only")
+    ap.add_argument(
+        "--output-dir", type=Path,
+        help=(
+            "write assets to an isolated directory; when set, the metrics "
+            "fragment is written there and README.md is not modified"
+        ),
+    )
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -983,7 +990,11 @@ def main() -> int:
     })
 
     repo = Path(__file__).resolve().parents[1]
-    out_dir = repo / ASSET_DIR
+    publish = args.output_dir is None
+    out_dir = repo / ASSET_DIR if publish else args.output_dir
+    if not out_dir.is_absolute():
+        out_dir = repo / out_dir
+    asset_reference_dir = ASSET_DIR if publish else Path(".")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     produced: dict[str, Any] = {}
@@ -993,7 +1004,9 @@ def main() -> int:
         gif_info = write_gif(frames, out_dir / GIF_NAME,
                              fps=int(cfg["readme_assets"]["gif_fps"]))
         frames[fallback].save(out_dir / PNG_NAME, optimize=True)
-        gif_info["static_fallback"] = (ASSET_DIR / PNG_NAME).as_posix()
+        gif_info["static_fallback"] = (
+            asset_reference_dir / PNG_NAME
+        ).as_posix()
         gif_info["static_fallback_frame"] = fallback
         gif_info["static_fallback_scene"] = SCENES[6][0]
         produced["hero"] = gif_info
@@ -1013,24 +1026,32 @@ def main() -> int:
             static_site_map(builder, site_stats, out_dir / "site_summary_map.png"),
     }
     produced["static_figures"] = {
-        k: {"path": (ASSET_DIR / k).as_posix(), "bytes": v.stat().st_size}
+        k: {"path": (asset_reference_dir / k).as_posix(),
+            "bytes": v.stat().st_size}
         for k, v in statics.items()
     }
     for k in statics:
         print(f"figure ..... {k}")
 
-    frag = write_metrics_fragment(cfg, metrics, selection,
-                                  repo / "reports" / "readme_metrics.md")
-    produced["metrics_fragment"] = frag.relative_to(repo).as_posix()
+    metrics_path = (
+        repo / "reports" / "readme_metrics.md"
+        if publish else out_dir / "readme_metrics.md"
+    )
+    frag = write_metrics_fragment(cfg, metrics, selection, metrics_path)
+    produced["metrics_fragment"] = (
+        frag.relative_to(repo).as_posix() if publish else frag.name
+    )
     print(f"metrics .... {produced['metrics_fragment']}")
 
-    fragment_body = "\n".join(
-        line for line in frag.read_text(encoding="utf-8").splitlines()
-        if not line.startswith("<!--"))
-    injected = inject_into_readme(repo / "README.md", {
-        "dataset-line": dataset_block(metrics),
-        "results": fragment_body,
-    })
+    injected: list[str] = []
+    if publish:
+        fragment_body = "\n".join(
+            line for line in frag.read_text(encoding="utf-8").splitlines()
+            if not line.startswith("<!--"))
+        injected = inject_into_readme(repo / "README.md", {
+            "dataset-line": dataset_block(metrics),
+            "results": fragment_body,
+        })
     produced["readme_blocks_injected"] = injected
     print(f"readme ..... {', '.join(injected) if injected else 'no markers found'}")
 
@@ -1073,7 +1094,11 @@ def main() -> int:
     blob = json.dumps(meta, indent=2, default=str)
     rp.assert_public_safe(blob, "asset metadata")
     meta_path.write_text(blob, encoding="utf-8")
-    print(f"metadata ... {(ASSET_DIR / 'asset_metadata.json').as_posix()}")
+    metadata_label = (
+        (ASSET_DIR / "asset_metadata.json").as_posix()
+        if publish else meta_path.name
+    )
+    print(f"metadata ... {metadata_label}")
     return 0
 
 

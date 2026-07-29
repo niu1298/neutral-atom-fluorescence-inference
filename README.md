@@ -1,8 +1,7 @@
 # Neutral-Atom Fluorescence Inference
 
-Statistical inference of latent atom occupancy from paired fluorescence
-readout, on a standardized single-condition dataset with frame-dependent
-background.
+Held-out statistical inference for neutral-atom fluorescence readout,
+operational switch-off retention, and effective illuminated-wait decay.
 
 <p align="center">
   <img src="assets/readme/fluorescence_inference_overview.gif"
@@ -10,23 +9,42 @@ background.
        width="1100">
 </p>
 
-<!-- BEGIN:dataset-line -->
-**Current dataset** — 100 shots · 2 consecutive frames per shot · 100 ms exposure · 200 sites (40,000 site-frame observations, 20,000 site-shot pairs, 2 sites carrying a geometry flag). The independent experimental units are the 100 shots.
-<!-- END:dataset-line -->
+**Scientific question** — which fluorescence-count features are reproducible
+on unseen shots, and what operational timing dependence remains after
+per-run geometry, site-free background correction, and shot-cluster
+uncertainty?
 
-**Scientific question** — how can latent atom occupancy, and the disagreement
-between two consecutive readouts of it, be inferred from noisy fluorescence
-measurements whose background depends on which frame you are looking at?
+<!-- BEGIN:experiment-matrix -->
+| dataset | shots | frames | exposure | swept variable |
+|---|---:|---:|---:|---|
+| paired readout | 100 | 2 | 100 ms | none |
+| switch-off hold | 110 | 5 | 50 ms | 0.1–2.1 s |
+| bright wait | 100 | 2 | 50 ms | 0.1–1.9 s |
+<!-- END:experiment-matrix -->
 
-**Current scope** — one imaging condition. Audit, standardized data layer,
-paired-readout quality control, and descriptive baselines. No readout fidelity,
-false-positive rate, false-negative rate or imaging-loss rate is estimated
-here, and [Limitations](#limitations) says exactly why this dataset cannot
-support those claims yet.
+The project now follows three linked datasets: paired 100 ms readout for
+background and readout consistency; five-frame 50 ms switch-off holds for an
+operational hold-time dependence and fixed interval factors; and two-frame
+50 ms bright waits for an effective illuminated-wait decay and post-wait
+retention control. The independent experimental unit is always a **shot**,
+never a site-frame row.
+
+**Identified quantities** — held-out predictive count likelihood,
+model-implied component overlap, apparent occupancy, operational
+`lambda_switch_off` and interval factors \(q_j\), effective
+`lambda_bright_effective`, plus an exploratory latent-state fit whose public
+acceptance gate currently fails because clustered latent-parameter uncertainty
+has not been established.
+These are not empirical fidelity, intrinsic dark/bright lifetimes, definitive
+heating, or proof of a fixed per-pulse loss. The switch-off sequence leaves DDS
+commands configured, cooling was not optimized, and sweep order is fixed
+ascending within every repeated cycle.
 
 [**Method**](#method) · [**Validation**](#validation) · [**Results**](#results) ·
 [**Reproduce**](#reproduce) · [**Limitations**](#limitations) ·
-[**Data audit**](docs/DATA_AUDIT.md) · [**Validation report**](docs/VALIDATION.md) ·
+[**Sweep audit**](docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md) ·
+[**Interpretation**](docs/LOSS_SWEEP_INTERPRETATION.md) ·
+[**Next experiments**](docs/NEXT_EXPERIMENTS.md) ·
 [**Data contract**](docs/DATA_CONTRACT.md)
 
 ---
@@ -36,21 +54,24 @@ support those claims yet.
 ```mermaid
 flowchart TD
     A["Raw fluorescence images<br/><i>private, read-only</i>"] --> B
-    B["ROI and background extraction<br/><code>mit-tweezer-array-analysis</code>"] --> C
-    C["Standardized frame-site table<br/><i>the repository boundary</i>"] --> D
-    D["QC and background correction"] --> E
-    E["Threshold / mixture baseline<br/><i>next milestone</i>"] --> F
-    F["Paired latent-state inference<br/><i>next milestone</i>"] --> G
-    G["Held-out evaluation and uncertainty<br/><i>next milestone</i>"]
+    B["Shared image loading and lattice numerics"] --> C
+    C["Versioned frame-site tables<br/><i>schema 2.0 / additive 3.0</i>"] --> D
+    D["Per-run geometry and site-free background gates"] --> E
+    E["Whole-shot train / validation / test split"] --> F
+    F["Held-out emission baselines"] --> G
+    G["Operational decay models<br/><i>shot-cluster intervals</i>"] --> H
+    H["Latent-state model<br/><i>accepted only if all gates pass</i>"]
 
     subgraph lab ["mit-tweezer-array-analysis — general lab infrastructure"]
         B
     end
     subgraph here ["neutral-atom-fluorescence-inference — this repository"]
+        C
         D
         E
         F
         G
+        H
     end
 ```
 
@@ -59,7 +80,9 @@ from the general lab analysis package and are reused rather than reimplemented;
 `tests/test_reuse_matches_lab.py` pins this repository's helpers to that
 implementation numerically. This repository contains no laboratory control
 code, no hardware driver, no absolute data path and no raw image. It starts at
-the standardized table.
+the standardized table. The V0 paired pipeline remains schema 2.0; the two
+sweeps opt into additive schema 3.0 with run-level command/timing evidence and
+frozen complete-shot cycle splits.
 
 ### Locating the sites
 
@@ -105,6 +128,39 @@ named `*_annulus_contaminated`, and is not used for inference.
 |:--|:--|
 | Every site-shot pair, with the four apparent regions. The reference lines come from a fit on the full dataset: a display reference, **not** a validated classifier. | Signal, background and spread across the array, with the geometry-flagged sites outlined. |
 
+### Extending to the loss sweeps
+
+Each 2026-07-28 run gets an independent 10 × 10 geometry fit. The fixed
+background template and every data-dependent emission parameter are trained
+on six complete acquisition cycles; two cycles select model structure and two
+cycles are scored once. Every sweep condition therefore contributes 6/2/2
+independent shots to train/validation/test.
+
+The public emission baseline is selected among global, frame-pooled,
+frame-offset and regularized site-offset models by validation count
+likelihood. A fully independent per-site mixture is retained as a high-
+parameter diagnostic. Reported overlap and \(d'\) are properties of these
+count models, not empirical fidelity.
+
+For the five-frame switch-off sweep, consecutive apparent-retention events are
+fit by
+
+\[
+P(1_{j+1}\mid 1_j,t)=q_j\exp(-\lambda_\mathrm{switch\_off}t).
+\]
+
+Shared, first-interval-separate and interval-specific slopes are compared on
+validation shots. For the bright-wait sweep, no-floor and floor decays are
+compared, but the extra floor parameter is accepted only when its validation
+gain resolves across independent shot clusters. The image-1→image-2 control is
+selected separately between flat and constrained monotone retention.
+
+All primary intervals resample complete shots within condition. Sites,
+frames, and all repetitions belonging to a selected shot stay together. The
+binary latent-state model is fitted only after timing, geometry, background,
+held-out baseline and identifiability gates pass; its predictive improvement
+does not turn posterior occupancy into empirical ground truth.
+
 ---
 
 ## Validation
@@ -122,12 +178,32 @@ numbers: [`docs/VALIDATION.md`](docs/VALIDATION.md).
 | Background method | annulus **rejected**; template + per-frame offset selected on residual structure (8.74 vs 40.97 counts/px for a flat level) |
 | Frame 1 − frame 0 shift, before → after | **−36.56 ± 9.94 → −12.53 ± 1.48** counts/px, now agreeing with the model-free whole-frame median (−13.77) |
 
-What this certifies: the site set is stable, unclipped, non-overlapping and not
-a duplicated image. What it does **not** certify: that each site is a
-physically verified trap. Sites are localised from atom fluorescence, so a trap
-never loaded during these 100 shots is invisible to the procedure, and no
-trap-light reference image exists for this run. The phrase "200 valid traps"
-appears nowhere in this repository.
+The sweep-specific gates are generated independently for each run:
+
+<!-- BEGIN:sweep-validation -->
+| Gate | Switch-off hold | Bright wait |
+|---|---:|---:|
+| Training-shot lattice pitch | 11.205 px | 11.233 px |
+| Early/late registered shift, median / max | <0.001 / <0.001 px | 0.145 / 0.258 px |
+| Shortest/longest rigid-shift sensitivity | 0.007 px | 0.088 px |
+| Selected background | template + frame offset | template + frame offset |
+| Site-free residual structure, selected | 5.17 counts | 3.96 counts |
+| Annuli intersecting neighbouring-site masks | 100 / 100 | 100 / 100 |
+| Site-free first-frame pedestal | +225 ROI counts | +75 ROI counts |
+
+The two fitted grids differ by 11.09 px, almost exactly one lattice basis
+step. Recorded crop and camera settings are identical. Image data alone cannot
+distinguish a real one-pitch translation from a lattice-index alias, so the
+runs are not pooled.
+<!-- END:sweep-validation -->
+
+**Paired-readout-only geometry note.** For the 2026-07-27 dataset, the
+validation above certifies that the two-array site set is stable, unclipped,
+non-overlapping and not a duplicated image. It does **not** certify that each
+site is a physically verified trap. Sites are localised from atom fluorescence,
+so a trap never loaded during these 100 shots is invisible to the procedure,
+and no trap-light reference image exists for this run. The phrase "200 valid
+traps" appears nowhere in this repository.
 
 One question stays open. Two sharply bounded 10 × 10 arrays with different
 pitch and rotation appear in the same exposure, yet the sequence ramps the
@@ -139,16 +215,11 @@ settle it. No result here depends on the answer.
 
 ## Results
 
-Everything below is generated by the pipeline into
-[`reports/readme_metrics.md`](reports/readme_metrics.md) and injected here. No
-metric in this README is typed by hand.
-
-> **These are descriptive quantities, not benchmarks.** The two-component fit
-> behind `d'`, the overlap and the reference levels is fitted on the full
-> dataset with no train/validation/test split. Nothing here is a held-out
-> fidelity estimate or a measured error rate. **The next milestone is exactly
-> that**: a shot-ordered 60/20/20 split, threshold and mixture baselines scored
-> on held-out shots, and shot-cluster bootstrap intervals.
+Public numerical summaries are generated from machine-readable QC and model
+results into [`reports/readme_metrics.md`](reports/readme_metrics.md), then
+injected here. The V0 paired quantities remain explicitly descriptive; the
+V1 sweep quantities use frozen shot splits and shot-cluster intervals. Neither
+kind is an empirical fidelity or labelled physical-loss measurement.
 
 <!-- BEGIN:results -->
 ### Dataset, as measured
@@ -224,6 +295,26 @@ than to misclassification.
   (grid_B, row 6, column 0).
 <!-- END:results -->
 
+### Held-out loss-sweep inference
+
+| ![Four-panel overview of switch-off retention, interval factors, bright-wait occupancy, and the post-wait control](assets/readme/loss_sweep_overview.png) |
+|:--|
+| Curves and 95% intervals use complete shots as clusters. The fixed ascending order inside every acquisition cycle remains a design limitation. |
+
+<!-- BEGIN:loss-sweep-results -->
+Generated loss-sweep results are populated by
+`scripts/generate_loss_sweep_assets.py` after
+`reports/loss_sweep_results.json` exists.
+<!-- END:loss-sweep-results -->
+
+| ![Operational switch-off-hold retention](assets/readme/dark_hold_retention.png) | ![Effective bright-wait apparent occupancy decay](assets/readme/bright_wait_decay.png) |
+|:--|:--|
+| Apparent consecutive-readout retention under the switch-off command. DDS settings remain configured, so this is not an intrinsic dark lifetime. | Image-1 apparent occupancy during the commanded illuminated wait. The selected rate is effective and condition-specific. |
+
+| ![Site-free background diagnostics across the sweeps](assets/readme/background_drift_sweeps.png) | ![Held-out per-site apparent retention](assets/readme/per_site_retention_map.png) |
+|:--|:--|
+| Site-free background estimates, separate from the occupancy-dependent trap-count low tail. | Test-shot apparent retention by lattice site; spatial heterogeneity is not additional independent-shot evidence. |
+
 ---
 
 ## Reproduce
@@ -243,6 +334,15 @@ python scripts/export_processed_dataset.py   --config configs/paired_100ms.yaml
 python scripts/validate_site_geometry.py     --config configs/paired_100ms.yaml
 python scripts/compare_background_methods.py --config configs/paired_100ms.yaml
 python scripts/generate_readme_assets.py     --config configs/paired_100ms.yaml
+
+python scripts/audit_source_data.py --config configs/dark_hold_50ms_20260728_0044.yaml
+python scripts/audit_source_data.py --config configs/bright_wait_50ms_20260728_0050.yaml
+python scripts/export_processed_dataset.py   --config configs/dark_hold_50ms_20260728_0044.yaml
+python scripts/export_processed_dataset.py   --config configs/bright_wait_50ms_20260728_0050.yaml
+python scripts/validate_sweep_geometry.py
+python scripts/compare_loss_sweep_backgrounds.py
+python scripts/analyze_loss_sweeps.py --bootstrap 1000
+python scripts/generate_loss_sweep_assets.py
 python -m pytest
 ```
 
@@ -254,27 +354,32 @@ Each script fails with an actionable message when the raw shots are
 unavailable; none of them substitutes synthetic data for a missing
 measurement.
 
+The sweep commands add schema-3.0 tables, independent per-run geometry gates,
+the site-free background comparison, held-out/clustered operational models, the
+latent acceptance gate, and the generated sweep figures and metrics. Their
+default 1,000-replicate analysis is deterministic under the recorded seed.
+
 `notebooks/01_data_qc.ipynb` is a presentation layer over the same package. No
 asset and no number in this repository depends on running it.
 
 Raw shots live under `Experiment-Data/<date>/<sequence>/` and are gitignored,
 as are the processed table and the QC report. Provenance — git commit, config
-hash, input-manifest hash — is recorded in every generated artefact; machine
-paths never are.
+hash and input-manifest hash — is recorded in processed-table metadata and the
+machine-readable audit, validation and model reports. The asset manifest binds
+public figures to their machine-readable result inputs. Machine paths never
+appear in tracked outputs.
 
 ---
 
 ## Limitations
 
-**What this dataset can answer.** Whether the bright and dark populations
-separate at 100 ms; whether there is a systematic background or signal shift
-between the two frames; how consistent the two frames' apparent calls are; how
-signal, background and spread vary across sites; the apparent bright-to-dark
-and dark-to-bright rates; and which background treatment is more stable against
-acquisition order.
+The full claim table is
+[`docs/LOSS_SWEEP_INTERPRETATION.md`](docs/LOSS_SWEEP_INTERPRETATION.md).
 
-**What it cannot.** With one imaging condition, two frames, and no control
-data, this run has no identifying information for:
+**Paired 100 ms readout.** This dataset identifies count separation,
+frame-dependent background and apparent paired agreement. With one condition,
+two frames and no labelled controls, it still has no identifying information
+for:
 
 - a true false-positive or false-negative rate, or a readout fidelity —
   mixture overlap is a property of the fitted description, not a measured error
@@ -286,8 +391,7 @@ data, this run has no identifying information for:
   or during frame 1;
 - an optimal exposure time — the array is nowhere near detector saturation, but
   that is not an exposure-time optimisation;
-- generalisation to another day;
-- a multi-frame transition hazard.
+- generalisation to another day.
 
 **Known data issues**, all recorded in [`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md)
 and none of them silently repaired: frame 1 sits systematically below frame 0
@@ -297,37 +401,70 @@ first-shot background outlier and is kept, not dropped; and two of 200 sites
 carry a geometry-confidence flag. Sites are localised from atom fluorescence,
 so a trap never loaded during these 100 shots could not be localised at all.
 
+**Loss sweeps.** Multi-frame inference is now in scope, but only operationally
+and under the stated models:
+
+- the nominal dark hold commands the science-imaging switches off while DDS
+  frequency and amplitude commands remain configured; without an extinction
+  measurement, `tau_switch_off` is not an intrinsic dark lifetime;
+- cooling was not optimized, so neither effective rate is a best-case
+  apparatus benchmark;
+- both sweeps are from one date with ten independent shots per condition;
+- all sites in a shot share loading, illumination, background, timing and
+  drift, so site rows are not independent repeats;
+- there is no empirical occupancy ground truth, matched-empty sequence,
+  complete camera dark-frame control or pre/post nondestructive reference;
+- condition order is fixed ascending inside all ten cycles. Condition is
+  perfectly confounded with within-cycle position even though cycles repeat;
+- the first switch-off frame has a large pedestal. Site-free pixels show
+  +225 ROI counts, while the prototype trap-low-tail method reported +1,114;
+- the two runs differ by one lattice pitch and have different background
+  trajectories, so their rates are compared but not pooled;
+- \(q_j\) mixes fixed physical loss, classification error, sequence transients
+  and state selection;
+- the exploratory latent model improves ordinary held-out likelihood, but its
+  profile and diagnostics treat site trajectories with working independence.
+  Without complete-shot clustered latent-parameter uncertainty, its public
+  gate fails and no posterior trajectory is promoted as a result.
+
+The comparison with 50 ms of effective bright-wait decay supports only this
+statement: **the simple constant-rate bright-wait model does not explain the
+full apparent inter-readout loss.** It does not prove a fixed per-exposure or
+fixed per-pulse mechanism.
+
 ---
 
 ## Status
 
 | Milestone | State |
 |---|---|
-| Data audit | done — [`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md) |
-| Standardized data layer, schema 2.0 | done — [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md) |
+| V0 data audit | done — [`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md) |
+| 2026-07-28 sweep audit | done — [`docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md`](docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md) |
+| Standardized data layer, schema 2.0 | preserved — [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md) |
 | Image-level QC and background variants | done |
 | Geometry validation and background remediation | done — [`docs/VALIDATION.md`](docs/VALIDATION.md) |
-| Threshold and mixture baselines, 60/20/20 held-out split | **next** |
-| Two-frame latent-state model | not started |
+| Additive schema 3.0 sweep exports | done — [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md) |
+| Shot-grouped 60/20/20 held-out sweep baselines | done |
+| Shot-cluster operational loss models | done |
+| Five-frame latent-state gate | not accepted; complete-shot clustered latent uncertainty is missing |
 | Identification controls: matched-empty, dark frames, natural-loss | data not yet acquired |
-| Multi-frame sequences, exposure scan, cross-day | out of scope for V0 |
+| Exposure-duration, pulse-count and cross-day controls | designed — [`docs/NEXT_EXPERIMENTS.md`](docs/NEXT_EXPERIMENTS.md) |
 
-The next milestone needs a shot-ordered 60/20/20 split, a threshold and mixture
-baseline evaluated on held-out shots, and shot-cluster bootstrap intervals.
-Until the identification controls exist, no result from this repository will be
-labelled a fidelity or a loss rate.
+Until the identifying controls exist, no result here is labelled empirical
+fidelity, true imaging-loss probability, intrinsic lifetime, definitive
+heating or a proven fixed pulse cost.
 
 ## Layout
 
 ```
 configs/     tracked machine-independent config; local paths stay untracked
 docs/        data audit, validation report, repository-boundary data contract
-src/         the fluorescence_inference package: schema, sites, background, QC
-scripts/     audit, export, geometry gate, background comparison, assets
+src/         schema, extraction, held-out emissions, clustered sweep and latent models
+scripts/     audit, export, validation, inference and deterministic asset generation
 notebooks/   presentation only
-tests/       schema, site finding, background models, geometry validation,
-             determinism, migration, privacy, lab-parity
-reports/     generated QC report and the README metric fragment
+tests/       schema, splits, timing, geometry, background, recovery,
+             leakage guards, determinism, privacy and lab-parity
+reports/     generated QC/model results and the README metric fragment
 assets/      generated README figures and the hero animation
 ```
 

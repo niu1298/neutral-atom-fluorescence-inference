@@ -383,4 +383,4 @@ which this single-condition dataset cannot address.
 * whether an atom was lost during frame 0, in the gap, or during frame 1;
 * an optimal exposure time;
 * generalisation across days;
-* a multi-frame transition hazard.
+* a multi-frame transition hazard from this two-frame V0 dataset alone.

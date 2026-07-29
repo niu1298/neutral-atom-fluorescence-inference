@@ -286,17 +286,19 @@ translation, an unrecorded state change or a one-index alias.
 
 This section is also **code-derived inference**. Every eligible estimator
 excludes a 5 px radius around every modelled site. Method selection uses only
-site-free residual structure and background coupling; count separation is
-explicitly excluded from the selection criterion.
+the 22 validation shots in 0044 and the 20 validation shots in 0050. It uses
+site-free residual structure with corrected-count/background coupling as a
+physical-validity gate; count separation and test shots are explicitly
+excluded from the selection criterion.
 
 | run | method | eligible as primary | median / p90 block-median residual (counts) | maximum absolute per-frame coupling |
 |---|---|---|---:|---:|
-| 0044 | global site-free median | yes | 19.2358 / 24.7110 | 0.3690 |
-| 0044 | robust spatial surface | yes | 7.5183 / 8.9276 | 0.2752 |
-| 0044 | fixed template + frame offset | **selected** | **5.1739 / 8.4259** | 0.3432 |
-| 0050 | global site-free median | yes | 19.5212 / 19.7830 | 0.1436 |
-| 0050 | robust spatial surface | yes | 8.5056 / 8.7720 | 0.0875 |
-| 0050 | fixed template + frame offset | **selected** | **3.9608 / 4.7070** | 0.1195 |
+| 0044 | global site-free median | yes | 18.7709 / 24.0645 | 0.1713 |
+| 0044 | robust spatial surface | yes | 7.5533 / 9.0147 | 0.1014 |
+| 0044 | fixed template + frame offset | **selected** | **5.4517 / 8.1533** | **0.0830** |
+| 0050 | global site-free median | yes | 19.4700 / 19.6841 | 0.2777 |
+| 0050 | robust spatial surface | yes | 8.3555 / 8.6632 | 0.2180 |
+| 0050 | fixed template + frame offset | **selected** | **4.3685 / 4.7571** | **0.1723** |
 
 Raw counts are ineligible because they do not estimate background. The local
 annulus is ineligible because it intersects neighbouring-site masks:
