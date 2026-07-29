@@ -1,0 +1,132 @@
+{
+  "analysis_version": "loss-sweeps-v1.0",
+  "assets": {
+    "background_drift_sweeps.png": {
+      "bytes": 132439,
+      "height_px": 789,
+      "path": "background_drift_sweeps.png",
+      "sha256": "2e1e4beb194ae1666adae3817fa4bfaaa234bea6c8e968cf4584a0b912d6bba6",
+      "width_px": 1787
+    },
+    "bright_wait_decay.png": {
+      "bytes": 103931,
+      "height_px": 835,
+      "path": "bright_wait_decay.png",
+      "sha256": "1ebf2190ab463669ff6d8bae9ed242a77b40b5eea341dac80c958bd81acafcc2",
+      "width_px": 1817
+    },
+    "dark_hold_retention.png": {
+      "bytes": 99647,
+      "height_px": 927,
+      "path": "dark_hold_retention.png",
+      "sha256": "59feb343dab9e7538014a9e63beaf59697b977a27fcf01ebc6fab892d9075d02",
+      "width_px": 1427
+    },
+    "loss_sweep_overview.png": {
+      "bytes": 216654,
+      "height_px": 1293,
+      "path": "loss_sweep_overview.png",
+      "sha256": "331ef9fe7e61f553e49b3344a4c54aaf1f24ec292e7d311b07eb44b00463ba54",
+      "width_px": 1877
+    },
+    "per_site_retention_map.png": {
+      "bytes": 77573,
+      "height_px": 837,
+      "path": "per_site_retention_map.png",
+      "sha256": "39a40901eeba16f609ba4e16ff38d6a00633d420daddba353481264b5be306d3",
+      "width_px": 1871
+    }
+  },
+  "generated_by": "scripts/generate_loss_sweep_assets.py",
+  "independent_experimental_unit": "shot",
+  "optional_assets_skipped": {
+    "latent_state_example.png": "latent gate did not pass or representative data are absent"
+  },
+  "privacy": {
+    "absolute_paths_stored": false,
+    "internal_sequence_identifiers_visible": false,
+    "raw_filenames_stored": false,
+    "user_or_machine_identifiers_visible": false
+  },
+  "selection_rules": {
+    "latent_representative": null,
+    "per_site": "all supplied sites; one predeclared held-out value per site"
+  },
+  "source_file": "loss_sweep_results.json",
+  "source_sha256": "f4c2cb9aa048a2c81e311820073a532226dce7334b20d3b97032b0fa5b2d15e1",
+  "visible_text": {
+    "background_drift_sweeps.png": [
+      "Background drift across loss sweeps",
+      "Switch-off sweep",
+      "sweep value (s)",
+      "site-free background (ROI counts)",
+      "10 independent shots per point",
+      "frame 1",
+      "frame 2",
+      "frame 3",
+      "frame 4",
+      "frame 5",
+      "Bright-wait sweep",
+      "sweep value (s)",
+      "site-free background (ROI counts)",
+      "10 independent shots per point",
+      "frame 1",
+      "frame 2",
+      "Points show 95% complete-shot cluster intervals."
+    ],
+    "bright_wait_decay.png": [
+      "Bright-wait occupancy",
+      "Post-wait retention",
+      "prior bright wait (s)",
+      "apparent occupancy",
+      "apparent retention",
+      "95% clustered fit band",
+      "apparent estimate (95% cluster CI)",
+      "10 independent shots per point",
+      "10 independent shots per point",
+      "Effective illuminated-wait decay and the post-wait retention control; neither panel establishes an intrinsic bright-state lifetime or a heating mechanism."
+    ],
+    "dark_hold_retention.png": [
+      "Operational switch-off retention",
+      "Hold is defined by the commanded switch-off configuration; this is not an intrinsic fully dark lifetime.",
+      "switch-off hold (s)",
+      "apparent retention",
+      "readout interval",
+      "10 independent shots per point",
+      "1\u21922",
+      "2\u21923",
+      "3\u21924",
+      "4\u21925"
+    ],
+    "loss_sweep_overview.png": [
+      "Loss-sweep overview",
+      "Intervals are shot-clustered. Rates are operational for the stated switch-off and illuminated-wait configurations.",
+      "A  Switch-off retention",
+      "B  Fixed interval retention",
+      "C  Bright-wait occupancy",
+      "D  Post-wait retention",
+      "switch-off hold (s)",
+      "prior bright wait (s)",
+      "apparent retention",
+      "apparent occupancy",
+      "fixed retention factor",
+      "readout interval",
+      "first interval highlighted",
+      "95% clustered fit band",
+      "apparent estimate (95% cluster CI)",
+      "10 independent shots per point",
+      "10 independent shots per point",
+      "10 independent shots per point",
+      "88 independent development shots",
+      "1\u21922",
+      "2\u21923",
+      "3\u21924",
+      "4\u21925"
+    ],
+    "per_site_retention_map.png": [
+      "Per-site apparent retention",
+      "Held-out apparent retention and complete-shot 95% interval width; fixed color scales are 0 to 1 and 0 to 0.5. 4\u201321 independent test shots per site. Sites describe heterogeneity, not independent experimental repeats.",
+      "95% cluster interval width"
+    ]
+  }
+}

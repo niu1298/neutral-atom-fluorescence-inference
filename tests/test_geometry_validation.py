@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -46,6 +47,32 @@ def test_matching_is_deterministic_across_repeats():
     second = gv.match_site_sets(a, b, max_distance_px=3.0)
     np.testing.assert_array_equal(first.pairs, second.pairs)
     np.testing.assert_array_equal(first.distances, second.distances)
+
+
+def test_split_half_per_grid_order_is_deterministic(monkeypatch):
+    """Public validation JSON must not depend on Python hash randomization."""
+    grids = [
+        SimpleNamespace(name="grid_B", summary=lambda: {"name": "grid_B"}),
+        SimpleNamespace(name="grid_A", summary=lambda: {"name": "grid_A"}),
+    ]
+    site_map = SimpleNamespace(
+        centers_yx=np.array([[0.0, 0.0], [10.0, 10.0]]),
+        grids=grids,
+        grid_name=np.array(["grid_B", "grid_A"]),
+        n_sites=2,
+    )
+    monkeypatch.setattr(gv, "fit_on_subset", lambda *args, **kwargs: site_map)
+
+    result = gv.stability_across_halves(
+        [0, 1, 2, 3],
+        {},
+        [],
+        lambda *_: None,
+        trap_half_width=1,
+        kmeans_2d=lambda *_: None,
+    )
+
+    assert list(result["per_grid"]) == ["grid_A", "grid_B"]
 
 
 def test_matching_reports_sites_beyond_the_radius_as_unmatched():

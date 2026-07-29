@@ -183,18 +183,18 @@ The sweep-specific gates are generated independently for each run:
 <!-- BEGIN:sweep-validation -->
 | Gate | Switch-off hold | Bright wait |
 |---|---:|---:|
+| Geometry gate | passed | passed |
 | Training-shot lattice pitch | 11.205 px | 11.233 px |
-| Early/late registered shift, median / max | <0.001 / <0.001 px | 0.145 / 0.258 px |
+| Early/late registered shift, median / max | 0.000 / 0.000 px | 0.145 / 0.258 px |
 | Shortest/longest rigid-shift sensitivity | 0.007 px | 0.088 px |
 | Selected background | template + frame offset | template + frame offset |
-| Site-free residual structure, selected | 5.17 counts | 3.96 counts |
+| Site-free residual structure, selected | 5.45 counts | 4.37 counts |
 | Annuli intersecting neighbouring-site masks | 100 / 100 | 100 / 100 |
 | Site-free first-frame pedestal | +225 ROI counts | +75 ROI counts |
 
-The two fitted grids differ by 11.09 px, almost exactly one lattice basis
-step. Recorded crop and camera settings are identical. Image data alone cannot
-distinguish a real one-pitch translation from a lattice-index alias, so the
-runs are not pooled.
+The fitted grids differ by 11.09 px. Recorded crop/offset metadata is identical. A one-basis-step match is consistent with an index alias or a real one-pitch translation; image data alone do not identify which. The sequences are not pooled: Separate acquisitions have a one-pitch coordinate shift, distinct background trajectories, and no randomized cross-sequence control.
+
+**Acquisition-order limitation.** Conditions repeat in fixed ascending order within every cycle. Sweep value is perfectly confounded with within-cycle position, although each condition recurs across ten cycles.
 <!-- END:sweep-validation -->
 
 **Paired-readout-only geometry note.** For the 2026-07-27 dataset, the
@@ -302,9 +302,45 @@ than to misclassification.
 | Curves and 95% intervals use complete shots as clusters. The fixed ascending order inside every acquisition cycle remains a design limitation. |
 
 <!-- BEGIN:loss-sweep-results -->
-Generated loss-sweep results are populated by
-`scripts/generate_loss_sweep_assets.py` after
-`reports/loss_sweep_results.json` exists.
+**Held-out count baselines.** Model choice used validation shots; the test metrics below were scored once.
+
+| dataset | train/validation/test shots | selected emission model | test mean NLL | model-implied overlap | d-prime | posterior entropy |
+|---|---|---|---:|---:|---:|---:|
+| switch-off hold | 6/2/2 per condition; 66/22/22 total | `shrinkage_site_offsets_k5` | 8.081 | 2.6% | 3.71 | 0.079 |
+| bright wait | 6/2/2 per condition; 60/20/20 total | `shrinkage_site_offsets_k5` | 7.908 | 4.1% | 3.30 | 0.080 |
+
+These count-model quantities are predictive and model-implied; they are **not** empirical fidelity, FPR, FNR, or labelled physical loss.
+
+**Operational switch-off-hold model.** Validation selected shared slope.
+
+- **`lambda_switch_off`:** 0.0449 s^-1 (0.0302–0.0642 s^-1, 95% cluster CI).
+- **`tau_switch_off`:** 22.29 s (15.57–33.15 s, 95% cluster CI).
+
+| interval | fixed inter-readout survival q_j |
+|---|---:|
+| 1→2 | 0.768 (0.743–0.794, 95% cluster CI) |
+| 2→3 | 0.859 (0.841–0.878, 95% cluster CI) |
+| 3→4 | 0.854 (0.837–0.875, 95% cluster CI) |
+| 4→5 | 0.889 (0.869–0.912, 95% cluster CI) |
+
+This is an operational decay under the switch-off command. DDS settings remain configured and cooling was not optimized, so it is not an intrinsic dark lifetime.
+
+**Effective bright-wait model.** Validation selected no-floor exponential.
+
+- **`lambda_bright_effective`:** 0.6084 s^-1 (0.5456–0.6661 s^-1, 95% cluster CI).
+- **`tau_bright_effective`:** 1.64 s (1.50–1.83 s, 95% cluster CI).
+- **Image-1 to image-2 control:** validation selected flat retention; no post-wait retention trend was resolved.
+
+**Cross-dataset comparison.** The sequences remain separate; the comparison propagates complete-shot bootstrap uncertainty.
+
+- **Bright/switch-off rate ratio:** 13.56 (9.22–20.64, 95% cluster CI).
+- **Bright-model prediction over 50 ms:** 3.00% (2.69–3.28%, 95% cluster CI) loss.
+- **Later-interval apparent fixed loss:** 13.25% (11.60–14.70%, 95% cluster CI).
+- **Observed minus predicted:** 10.26% (8.62–11.79%, 95% cluster CI).
+
+The simple constant-rate bright-wait model does not explain the full inter-readout loss. This does not prove a fixed per-pulse cost.
+
+**Latent-state gate.** Not accepted: complete-shot clustered uncertainty for latent transition parameters was not supplied.
 <!-- END:loss-sweep-results -->
 
 | ![Operational switch-off-hold retention](assets/readme/dark_hold_retention.png) | ![Effective bright-wait apparent occupancy decay](assets/readme/bright_wait_decay.png) |
@@ -337,10 +373,14 @@ python scripts/generate_readme_assets.py     --config configs/paired_100ms.yaml
 
 python scripts/audit_source_data.py --config configs/dark_hold_50ms_20260728_0044.yaml
 python scripts/audit_source_data.py --config configs/bright_wait_50ms_20260728_0050.yaml
-python scripts/export_processed_dataset.py   --config configs/dark_hold_50ms_20260728_0044.yaml
-python scripts/export_processed_dataset.py   --config configs/bright_wait_50ms_20260728_0050.yaml
-python scripts/validate_sweep_geometry.py
-python scripts/compare_loss_sweep_backgrounds.py
+python scripts/export_processed_dataset.py   --config configs/dark_hold_50ms_20260728_0044.yaml --no-qc
+python scripts/export_processed_dataset.py   --config configs/bright_wait_50ms_20260728_0050.yaml --no-qc
+python scripts/validate_sweep_geometry.py \
+  --config configs/dark_hold_50ms_20260728_0044.yaml \
+  --config configs/bright_wait_50ms_20260728_0050.yaml
+python scripts/compare_loss_sweep_backgrounds.py \
+  --config configs/dark_hold_50ms_20260728_0044.yaml \
+  --config configs/bright_wait_50ms_20260728_0050.yaml
 python scripts/analyze_loss_sweeps.py --bootstrap 1000
 python scripts/generate_loss_sweep_assets.py
 python -m pytest

@@ -115,7 +115,7 @@ def stability_across_halves(shots: Sequence, cfg_sites: dict[str, Any],
                             max_distance_px=match_radius_px)
 
     per_grid: dict[str, Any] = {}
-    for name in {g.name for g in map_a.grids}:
+    for name in sorted({g.name for g in map_a.grids}):
         idx_a = np.array([i for i, g in enumerate(map_a.grid_name) if g == name])
         sel = np.isin(match.pairs[:, 0], idx_a)
         d = match.distances[sel]
