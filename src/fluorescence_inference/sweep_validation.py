@@ -262,7 +262,11 @@ def summarize_background_methods(
     return out
 
 
-def select_background_method(summary: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def select_background_method(
+    summary: Mapping[str, Mapping[str, Any]],
+    *,
+    max_abs_background_coupling: float = 0.50,
+) -> dict[str, Any]:
     """Select among site-free methods using residual structure and coupling.
 
     Separation or test-set performance is intentionally absent.  Template and
@@ -290,14 +294,31 @@ def select_background_method(summary: Mapping[str, Mapping[str, Any]]) -> dict[s
             "selected_method": None,
             "reason": "no site-free candidate has residual-structure diagnostics",
         }
+    if not 0.0 < max_abs_background_coupling < 1.0:
+        raise ValueError("max_abs_background_coupling must lie in (0, 1)")
     candidates.sort()
     residual, coupling, selected = candidates[0]
+    coupling_passed = bool(
+        np.isfinite(coupling) and coupling <= max_abs_background_coupling
+    )
     return {
-        "passed": True,
+        "passed": coupling_passed,
         "selected_method": selected,
-        "criterion": "minimum site-free residual block-median structure; coupling as tie-break",
+        "criterion": (
+            "minimum validation-shot site-free residual block-median structure; "
+            "corrected-count/background coupling is a physical-validity gate "
+            "and tie-break"
+        ),
         "selected_residual_structure": residual,
         "selected_abs_background_coupling": coupling,
+        "max_abs_background_coupling": float(max_abs_background_coupling),
+        "background_coupling_gate_passed": coupling_passed,
+        "reason": (
+            None
+            if coupling_passed
+            else "selected correction remains too strongly coupled to its "
+            "site-free background estimate"
+        ),
         "ranking": [
             {"method": method, "residual_structure": r, "abs_background_coupling": c}
             for r, c, method in candidates

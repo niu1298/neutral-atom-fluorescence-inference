@@ -61,6 +61,12 @@ def main() -> int:
                     schema.columns_for_version(cfg.schema_version).items()},
     }
 
+    if not report.ok:
+        print("\nVALIDATION FAILED:", file=sys.stderr)
+        for e in report.errors:
+            print(f"  - {e}", file=sys.stderr)
+        return 3
+
     paths = write_dataset(
         cfg, df, sites_df, meta,
         run_metadata=ctx.get("run_metadata"),
@@ -79,11 +85,6 @@ def main() -> int:
         for name, path in paths.items():
             print(f"{name:<20} {path.name}")
 
-    if not report.ok:
-        print("\nVALIDATION FAILED:", file=sys.stderr)
-        for e in report.errors:
-            print(f"  - {e}", file=sys.stderr)
-        return 3
     for w in report.warnings:
         print(f"warning: {w}")
 

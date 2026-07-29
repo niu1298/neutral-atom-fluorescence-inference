@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fluorescence-inference"
 version = "0.1.0"
-description = "Statistical inference on standardized paired-readout neutral-atom fluorescence data"
+description = "Held-out statistical inference for neutral-atom fluorescence readout and operational loss sweeps"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Peiran Niu" }]
 maintainers = [{ name = "Peiran Niu" }]
-keywords = ["neutral atoms", "fluorescence imaging", "statistical inference", "paired readout"]
+keywords = ["neutral atoms", "fluorescence imaging", "statistical inference", "paired readout", "survival analysis", "latent state"]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",

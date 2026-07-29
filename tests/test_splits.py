@@ -78,6 +78,72 @@ def test_all_sites_and_frames_from_a_shot_keep_one_split():
     assert (out.groupby("shot_id", observed=True)["split"].nunique() == 1).all()
 
 
+def test_attach_split_uses_dataset_run_and_shot_identity_when_available():
+    rows = pd.DataFrame([
+        {
+            "dataset_id": dataset,
+            "run_id": run,
+            "shot_id": shot,
+            "frame_id": frame,
+            "site_id": 0,
+        }
+        for dataset, run in (("dataset_a", "run_a"), ("dataset_b", "run_b"))
+        for shot in (0, 1)
+        for frame in (0, 1)
+    ])
+    manifest = pd.DataFrame([
+        {
+            "dataset_id": "dataset_a",
+            "run_id": "run_a",
+            "shot_id": 0,
+            "split": "train",
+        },
+        {
+            "dataset_id": "dataset_a",
+            "run_id": "run_a",
+            "shot_id": 1,
+            "split": "validation",
+        },
+        {
+            "dataset_id": "dataset_b",
+            "run_id": "run_b",
+            "shot_id": 0,
+            "split": "test",
+        },
+        {
+            "dataset_id": "dataset_b",
+            "run_id": "run_b",
+            "shot_id": 1,
+            "split": "train",
+        },
+    ])
+
+    out = attach_split(rows, manifest)
+
+    assigned = (
+        out.groupby(["dataset_id", "run_id", "shot_id"], observed=True)["split"]
+        .first()
+        .to_dict()
+    )
+    assert assigned == {
+        ("dataset_a", "run_a", 0): "train",
+        ("dataset_a", "run_a", 1): "validation",
+        ("dataset_b", "run_b", 0): "test",
+        ("dataset_b", "run_b", 1): "train",
+    }
+
+
+def test_attach_split_rejects_ambiguous_shot_only_manifest_for_multiple_runs():
+    rows = pd.DataFrame([
+        {"dataset_id": dataset, "run_id": run, "shot_id": 0, "frame_id": 0}
+        for dataset, run in (("dataset_a", "run_a"), ("dataset_b", "run_b"))
+    ])
+    manifest = pd.DataFrame([{"shot_id": 0, "split": "train"}])
+
+    with pytest.raises(ValueError, match="does not provide that key"):
+        attach_split(rows, manifest)
+
+
 def test_incomplete_or_duplicate_cycles_are_rejected():
     incomplete = _design().iloc[:-1]
     with pytest.raises(ValueError, match="cycles are not complete"):

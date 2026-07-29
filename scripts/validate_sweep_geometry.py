@@ -96,8 +96,27 @@ def main() -> int:
     default_dir.mkdir(parents=True, exist_ok=True)
 
     for cfg in configs:
-        df, _sites, _meta = load_dataset(cfg)
+        df, _sites, meta = load_dataset(cfg)
+        provenance = meta.get("provenance", {})
+        processed_config = provenance.get("config", {})
+        processed_inputs = provenance.get("inputs", {})
+        if (
+            processed_config.get("config_sha256") != cfg.config_sha256
+            or not processed_inputs.get("manifest_sha256")
+        ):
+            raise ValueError(
+                f"{cfg.dataset_id}: processed metadata is stale or lacks a "
+                "config/input-manifest binding; regenerate the export"
+            )
         report, ctx = fit_geometry_subsets(cfg, _shot_manifest(df))
+        report["provenance_binding"] = {
+            "dataset_id": cfg.dataset_id,
+            "config_sha256": cfg.config_sha256,
+            "input_manifest_sha256": processed_inputs["manifest_sha256"],
+            "schema_version": meta.get("schema_version"),
+            "geometry_version": meta.get("geometry_version"),
+            "fit_scope": meta.get("fit_scope"),
+        }
         overlay = default_dir / f"{cfg.dataset_id}_roi_overlays.png"
         _overlay(cfg, ctx, overlay)
         report["overlay_file"] = overlay.name

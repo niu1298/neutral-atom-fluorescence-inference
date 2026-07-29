@@ -127,8 +127,27 @@ def test_background_selection_ignores_separation_and_rejects_annulus():
     }
     selected = select_background_method(summary)
     assert selected["selected_method"] == "template"
+    assert selected["background_coupling_gate_passed"]
     assert selected["separation_used_for_selection"] is False
     assert selected["annulus_eligible"] is False
+
+
+def test_background_selection_stops_on_strong_residual_coupling():
+    summary = {
+        "template": {
+            "eligible_as_primary": True,
+            "site_free_residual_structure": {"median_block_median_std": 1.0},
+            "per_frame": {
+                "0": {"corrected_vs_background_r": 0.72},
+                "1": {"corrected_vs_background_r": 0.64},
+            },
+        }
+    }
+    selected = select_background_method(summary)
+    assert selected["selected_method"] == "template"
+    assert not selected["passed"]
+    assert not selected["background_coupling_gate_passed"]
+    assert selected["reason"]
 
 
 def test_geometry_report_separates_bulk_shift_from_distortion():

@@ -285,7 +285,7 @@ class DarkRetentionFit:
     @property
     def bic(self) -> float:
         return (
-            self.n_parameters * np.log(max(self.n_observations, 1))
+            self.n_parameters * np.log(max(self.n_independent_shots, 1))
             + 2.0 * self.train_nll
         )
 
@@ -513,7 +513,7 @@ class BrightDecayFit:
     @property
     def bic(self) -> float:
         return (
-            self.n_parameters * np.log(max(self.n_observations, 1))
+            self.n_parameters * np.log(max(self.n_independent_shots, 1))
             + 2.0 * self.train_nll
         )
 
@@ -695,7 +695,7 @@ class ControlRetentionFit:
     @property
     def bic(self) -> float:
         return (
-            self.n_parameters * np.log(max(self.n_observations, 1))
+            self.n_parameters * np.log(max(self.n_independent_shots, 1))
             + 2.0 * self.train_nll
         )
 
@@ -899,10 +899,39 @@ def compare_dark_models(
         name: fit_dark_retention(train, model=name, **fit_kwargs)
         for name in candidates
     }
-    return _comparison_table(
+    selection = _comparison_table(
         fits,
         validation,
         tolerance_per_observation=tolerance_per_observation,
+    )
+    if "shared" not in fits:
+        return selection
+    shot_cols = _as_tuple(fit_kwargs.get("shot_cols", ("run_id", "shot_id")))
+    raw_choice = selection.selected_name
+    gate_by_candidate: dict[str, dict[str, float | int | bool]] = {}
+    for name, fit in fits.items():
+        if name == "shared":
+            continue
+        gate_by_candidate[name] = _paired_shot_validation_improvement(
+            fits["shared"], fit, validation, shot_cols=shot_cols
+        )
+    for name, gate in gate_by_candidate.items():
+        mask = selection.table["candidate"] == name
+        for key, value in gate.items():
+            selection.table.loc[mask, f"cluster_gate__{key}"] = value
+    selected = (
+        raw_choice
+        if raw_choice != "shared"
+        and bool(gate_by_candidate[raw_choice]["complexity_gate_passed"])
+        else "shared"
+    )
+    selection.table["selected_on_validation"] = (
+        selection.table["candidate"] == selected
+    )
+    return ModelSelection(
+        selected_name=selected,
+        fits=selection.fits,
+        table=selection.table,
     )
 
 
@@ -979,10 +1008,32 @@ def compare_control_models(
         name: fit_control_retention(train, model=name, **fit_kwargs)
         for name in candidates
     }
-    return _comparison_table(
+    selection = _comparison_table(
         fits,
         validation,
         tolerance_per_observation=tolerance_per_observation,
+    )
+    if not {"flat", "monotone"}.issubset(fits):
+        return selection
+    shot_cols = _as_tuple(fit_kwargs.get("shot_cols", ("run_id", "shot_id")))
+    gate = _paired_shot_validation_improvement(
+        fits["flat"], fits["monotone"], validation, shot_cols=shot_cols
+    )
+    for key, value in gate.items():
+        selection.table[f"monotone_cluster_gate__{key}"] = value
+    selected = (
+        "monotone"
+        if selection.selected_name == "monotone"
+        and bool(gate["complexity_gate_passed"])
+        else "flat"
+    )
+    selection.table["selected_on_validation"] = (
+        selection.table["candidate"] == selected
+    )
+    return ModelSelection(
+        selected_name=selected,
+        fits=selection.fits,
+        table=selection.table,
     )
 
 

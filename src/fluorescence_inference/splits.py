@@ -141,12 +141,38 @@ def attach_split(rows: pd.DataFrame, manifest: pd.DataFrame) -> pd.DataFrame:
     """Attach a manifest and fail if any shot is missing or crosses subsets."""
     if "shot_id" not in rows or "shot_id" not in manifest:
         raise ValueError("both rows and manifest must contain shot_id")
-    shot_split = manifest[["shot_id", "split"]].drop_duplicates()
-    if shot_split["shot_id"].duplicated().any():
+    scope_cols = ("dataset_id", "run_id")
+    join_keys = [
+        *[
+            col for col in scope_cols
+            if col in rows.columns and col in manifest.columns
+        ],
+        "shot_id",
+    ]
+    # Falling back to shot_id is backwards compatible for a single V0 run.
+    # It is not safe when a missing scope key distinguishes multiple runs.
+    for col in scope_cols:
+        if col in join_keys:
+            continue
+        for label, table in (("rows", rows), ("manifest", manifest)):
+            if col not in table.columns:
+                continue
+            scoped_keys = table[[*join_keys, col]].drop_duplicates()
+            if scoped_keys.duplicated(subset=join_keys).any():
+                raise ValueError(
+                    f"cannot attach split: {label} require {col} to distinguish "
+                    f"shot keys but the other table does not provide that key")
+
+    shot_split = manifest[[*join_keys, "split"]].drop_duplicates()
+    if shot_split.duplicated(subset=join_keys).any():
         raise ValueError("manifest assigns more than one split to a shot")
     out = rows.drop(columns=["split"], errors="ignore").merge(
-        shot_split, on="shot_id", how="left", validate="many_to_one")
+        shot_split, on=join_keys, how="left", validate="many_to_one")
     if out["split"].isna().any():
-        missing = sorted(out.loc[out["split"].isna(), "shot_id"].unique().tolist())
+        missing = (
+            out.loc[out["split"].isna(), join_keys]
+            .drop_duplicates()
+            .to_dict(orient="records")
+        )
         raise ValueError(f"rows contain shots absent from split manifest: {missing}")
     return out

@@ -124,6 +124,13 @@ def test_validation_selects_interval_specific_rates_when_slopes_really_differ():
     )
     assert selection.selected_name == "interval_specific"
     assert selection.table["selected_on_validation"].sum() == 1
+    selected_row = selection.table.loc[
+        selection.table["candidate"] == "interval_specific"
+    ].iloc[0]
+    assert bool(selected_row["cluster_gate__complexity_gate_passed"])
+    assert selected_row[
+        "cluster_gate__n_independent_validation_shots"
+    ] == 11 * 16
     assert (
         selection.table.loc[
             selection.table["candidate"] == "interval_specific",
@@ -207,6 +214,11 @@ def test_flat_and_monotone_control_are_compared_on_validation():
     validation = data[data["split"] == "validation"]
     selection = compare_control_models(train, validation)
     assert selection.selected_name == "monotone"
+    assert bool(
+        selection.table[
+            "monotone_cluster_gate__complexity_gate_passed"
+        ].iloc[0]
+    )
     fit = fit_control_retention(train, model="monotone")
     assert fit.q_0 == pytest.approx(0.91, abs=0.03)
     assert fit.kappa == pytest.approx(0.18, abs=0.03)

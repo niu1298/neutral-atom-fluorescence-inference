@@ -19,6 +19,27 @@ from fluorescence_inference.sweep_validation import (  # noqa: E402
 )
 
 
+def _processed_binding(cfg, meta):
+    """Bind this validation report to the exact processed-input contract."""
+    provenance = meta.get("provenance", {})
+    processed_config = provenance.get("config", {})
+    processed_inputs = provenance.get("inputs", {})
+    config_hash = processed_config.get("config_sha256")
+    input_hash = processed_inputs.get("manifest_sha256")
+    if config_hash != cfg.config_sha256 or not input_hash:
+        raise ValueError(
+            f"{cfg.dataset_id}: processed metadata is stale or lacks a "
+            "config/input-manifest binding; regenerate the export"
+        )
+    return {
+        "dataset_id": cfg.dataset_id,
+        "config_sha256": cfg.config_sha256,
+        "input_manifest_sha256": input_hash,
+        "schema_version": meta.get("schema_version"),
+        "geometry_version": meta.get("geometry_version"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", action="append", required=True)
@@ -33,9 +54,18 @@ def main() -> int:
 
     for cfg in cfgs:
         df, sites, meta = load_dataset(cfg)
+        if "split" not in df:
+            raise ValueError(f"{cfg.dataset_id}: background selection requires a split")
+        validation = df.loc[df["split"].astype(str) == "validation"].copy()
+        validation_orders = set(validation["shot_order"].astype(int).unique())
+        validation_frame_diagnostics = [
+            row
+            for row in meta.get("frame_background_diagnostics", [])
+            if int(row["shot_order"]) in validation_orders
+        ]
         methods = summarize_background_methods(
-            df,
-            frame_diagnostics=meta.get("frame_background_diagnostics", []),
+            validation,
+            frame_diagnostics=validation_frame_diagnostics,
         )
         selected = select_background_method(methods)
         configured = str(cfg["background"]["primary_method"])
@@ -53,14 +83,23 @@ def main() -> int:
             "methods": methods,
             "selection": {
                 **selected,
+                "selection_split": "validation",
+                "n_independent_validation_shots": int(
+                    validation["shot_id"].nunique()
+                ),
                 "configured_primary_method": configured_public,
                 "configured_matches_evidence": matches,
             },
+            "provenance_binding": _processed_binding(cfg, meta),
             "annulus_contamination": ann,
+            # Pedestal estimation is descriptive and does not select a method.
+            # It is therefore reported for all shots, with its scope explicit.
             "site_free_frame_pedestal": frame_pedestal_summary(df),
-            "occupancy_dependence_pending": (
-                "Evaluated downstream with frozen train-only apparent-occupancy "
-                "posteriors; separation is not used for background selection."
+            "occupancy_dependence_gate": (
+                "Selection requires the validation-shot corrected-count versus "
+                "site-free-background coupling reported above to remain below "
+                "the predeclared method gate. Frozen train-only apparent-occupancy "
+                "coupling is evaluated downstream as a separate sensitivity."
             ),
         }
 
@@ -68,8 +107,9 @@ def main() -> int:
         "datasets": reports,
         "all_configured_backgrounds_supported": all_pass,
         "selection_rule": (
-            "site-free residual spatial structure with background coupling as "
-            "a tie-break; model separation is excluded"
+            "validation-shot site-free residual spatial structure with "
+            "background coupling as a gate/tie-break; model separation and "
+            "test shots are excluded"
         ),
     }
     output = (

@@ -397,6 +397,19 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
     sites = df[site_key].drop_duplicates()
     stats.update(n_shots=int(len(shots)), n_sites=int(len(sites)),
                  frame_ids=[int(f) for f in frames], n_rows=int(len(df)))
+    run_frame_counts: pd.Series | None = None
+    if version == V3_SCHEMA_VERSION:
+        run_frame_ids = (
+            df[["dataset_id", "run_id", "frame_id"]]
+            .drop_duplicates()
+            .groupby(["dataset_id", "run_id"], observed=True)["frame_id"]
+            .agg(lambda values: sorted(int(v) for v in values))
+        )
+        run_frame_counts = run_frame_ids.map(len)
+        stats["frame_ids_by_run"] = {
+            f"{dataset_id}/{run_id}": frame_ids
+            for (dataset_id, run_id), frame_ids in run_frame_ids.items()
+        }
 
     if expected_shots is not None and len(shots) != expected_shots:
         errors.append(f"expected {expected_shots} shots, found {len(shots)}")
@@ -408,8 +421,22 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
                 sites.groupby(["dataset_id", "run_id"], observed=True).size().tolist())
         if any(n != expected_sites for n in site_counts):
             errors.append(f"expected {expected_sites} sites, found {site_counts}")
-    if expected_frames is not None and len(frames) != expected_frames:
-        errors.append(f"expected {expected_frames} frame ids, found {frames}")
+    if expected_frames is not None:
+        if version == SCHEMA_VERSION:
+            if len(frames) != expected_frames:
+                errors.append(
+                    f"expected {expected_frames} frame ids, found {frames}")
+        else:
+            assert run_frame_counts is not None
+            bad_frame_counts = {
+                f"{dataset_id}/{run_id}": int(count)
+                for (dataset_id, run_id), count in run_frame_counts.items()
+                if int(count) != expected_frames
+            }
+            if bad_frame_counts:
+                errors.append(
+                    f"expected {expected_frames} frames per run, found "
+                    f"{bad_frame_counts}")
 
     # every shot must carry the same complete frame x site block
     per_shot = df.groupby(shot_key, observed=True).size()
@@ -418,22 +445,24 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
             len(frames) * len(sites), index=per_shot.index)
         expected_block_text = str(len(frames) * len(sites))
     else:
+        assert run_frame_counts is not None
         run_sites = (
             sites.groupby(["dataset_id", "run_id"], observed=True).size())
         expected_by_shot = pd.Series(
             [
-                len(frames) * int(run_sites.loc[(dataset_id, run_id)])
+                int(run_frame_counts.loc[(dataset_id, run_id)])
+                * int(run_sites.loc[(dataset_id, run_id)])
                 for dataset_id, run_id, _ in per_shot.index
             ],
             index=per_shot.index,
         )
-        expected_block_text = "frame x run-specific site"
+        expected_block_text = "run-specific frame x run-specific site"
     bad = per_shot[per_shot.to_numpy() != expected_by_shot.to_numpy()]
     stats["shots_with_incomplete_block"] = int(len(bad))
     if len(bad):
         errors.append(
             f"{len(bad)} shots do not have exactly {expected_block_text} rows "
-            f"({len(frames)} frames x {len(sites)} sites)"
+            f"(global union: {len(frames)} frames x {len(sites)} sites)"
         )
 
     if version == SCHEMA_VERSION:

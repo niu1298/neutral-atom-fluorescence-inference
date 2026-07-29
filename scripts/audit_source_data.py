@@ -3,10 +3,14 @@
 Answers, from the files themselves rather than from assumption: how many shots
 exist, whether each has exactly the configured frames, what the frames actually
 are, what the exposures and inter-frame timing were, what metadata exists, and
-whether any control data (reference, empty, dark) is present.
+whether any control data (reference, empty, dark) is present.  For the schema-3
+loss sweeps it also decodes every compiled camera-trigger/science-switch word
+and both compiled DDS raw programs.
 
-Writes ``reports/audit/source_audit.json``. Opens every file read-only and
-writes nothing outside ``reports/``.
+The backwards-compatible paired-readout default is
+``reports/audit/source_audit.json``.  Sweep reports use
+``reports/audit/<dataset_id>_source_audit.json`` so the two runs cannot
+overwrite each other.  Every HDF5 file is opened read-only.
 
     python scripts/audit_source_data.py --config configs/paired_100ms.yaml
 """
@@ -24,6 +28,13 @@ import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 
 from fluorescence_inference.config import load_config  # noqa: E402
+from fluorescence_inference.command_audit import (  # noqa: E402
+    SUPPORTED_SEQUENCE_TYPES,
+    CommandAuditError,
+    audit_compiled_commands,
+    spec_from_config,
+    summarize_command_audits,
+)
 from fluorescence_inference.dataset import discover_shots, read_shot_meta  # noqa: E402
 from fluorescence_inference.provenance import stamp  # noqa: E402
 
@@ -49,8 +60,13 @@ def audit(cfg) -> dict[str, Any]:
     shots = discover_shots(cfg)
     frames_cfg = {int(s["frame_id"]): s["h5_path"] for s in cfg.frame_specs}
     saturation = float(cfg["source"]["saturation_adu"])
+    command_audit_required = cfg.sequence_type in SUPPORTED_SEQUENCE_TYPES
+    command_spec = (
+        spec_from_config(cfg) if command_audit_required else None
+    )
 
     per_shot: list[dict[str, Any]] = []
+    command_records: list[dict[str, Any]] = []
     image_inventory: dict[str, int] = {}
     dataset_shapes: dict[str, set[str]] = {}
     control_candidates: dict[str, int] = {}
@@ -73,6 +89,17 @@ def audit(cfg) -> dict[str, Any]:
             "frame_stats": {},
         }
         with h5py.File(p, "r") as f:
+            if command_spec is not None:
+                try:
+                    command_record = audit_compiled_commands(f, command_spec)
+                except CommandAuditError as exc:
+                    command_record = {
+                        "passed": False,
+                        "schema_version": "1.0",
+                        "failures": [str(exc)],
+                    }
+                rec["command_program"] = command_record
+                command_records.append(command_record)
             inv = walk_datasets(f)
             for k, v in inv.items():
                 image_inventory[k] = image_inventory.get(k, 0) + 1
@@ -109,6 +136,10 @@ def audit(cfg) -> dict[str, Any]:
         "control_dataset_candidates": control_candidates,
         "per_shot": per_shot,
         "aggregate": aggregate(per_shot, cfg),
+        "command_audit": summarize_command_audits(
+            command_records,
+            required=command_audit_required,
+        ),
     }
 
 
@@ -175,7 +206,16 @@ def main() -> int:
     cfg = load_config(args.config)
     report = audit(cfg)
 
-    out = Path(args.out) if args.out else cfg.reports_dir("audit", "source_audit.json")
+    default_name = (
+        f"{cfg.dataset_id}_source_audit.json"
+        if cfg.sequence_type in SUPPORTED_SEQUENCE_TYPES
+        else "source_audit.json"
+    )
+    out = (
+        Path(args.out)
+        if args.out
+        else cfg.reports_dir("audit", default_name)
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
 
@@ -190,7 +230,27 @@ def main() -> int:
         s = agg["frame1_minus_frame0_median_shift"]
         print(f"frame1-frame0 median . {s['mean']:+.2f} +/- {s['std']:.2f} counts/px")
     print(f"control candidates ... {report['control_dataset_candidates'] or 'none'}")
+    command = report["command_audit"]
+    if command["required"]:
+        print(
+            "compiled commands .... "
+            f"{command['n_shots_passed']}/{command['n_shots_audited']} "
+            "shots passed"
+        )
+        edge_error = command["max_abs_trigger_edge_error_s"]
+        print(
+            "trigger edge error ... "
+            + (
+                "unavailable"
+                if edge_error is None
+                else f"{edge_error:.3g} s maximum"
+            )
+        )
     print(f"written .............. {out.relative_to(Path.cwd()) if out.is_relative_to(Path.cwd()) else out.name}")
+    if command["required"] and not command["all_shots_passed"]:
+        for message in command["failure_messages"]:
+            print(f"command audit failure  {message}")
+        return 1
     return 0
 
 
