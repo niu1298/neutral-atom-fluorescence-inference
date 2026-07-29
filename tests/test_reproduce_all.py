@@ -91,13 +91,16 @@ def test_workflow_contains_no_cleanup_or_git_commands():
     )
 
 
-def test_code_guard_excludes_only_the_publication_orchestrator():
+def test_code_guard_excludes_only_publication_verification_code():
     exclusions = [
         path
         for path in reproduce.CODE_GUARD_PATHS
         if path.startswith(":(exclude)")
     ]
-    assert exclusions == [":(exclude)scripts/reproduce_all.py"]
+    assert exclusions == [
+        ":(exclude)scripts/reproduce_all.py",
+        ":(exclude)src/fluorescence_inference/publication_verification.py",
+    ]
     assert {"src", "scripts", "configs", "pyproject.toml"} <= set(
         reproduce.CODE_GUARD_PATHS
     )

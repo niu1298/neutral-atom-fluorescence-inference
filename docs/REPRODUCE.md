@@ -207,7 +207,12 @@ public asset hashes. It does not overwrite the reviewed result, public assets,
 README, or manifest. It fails if guarded analysis/configuration paths differ
 from Commit A. Verification materializes Commit-A configuration content through
 the recorded Windows checkout filters, so provenance hashes reproduce the
-certified clean worktree's CRLF representation.
+certified clean worktree's CRLF representation. Command-audit comparison
+canonicalizes only `provenance.git.commit` and `provenance.git.branch`, after
+checking that each candidate result names the exact raw audit file and that
+reconstructing the reviewed runtime identity reproduces the certified raw
+audit hash. Every timing, switch, DDS, sweep, completeness, and command-evidence
+field remains hash-protected.
 
 The public sweep renderer reads only the reviewed loss-sweep result JSON.
 Exact asset-byte equality is required only in the manifest’s recorded Windows

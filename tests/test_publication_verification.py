@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -9,11 +10,14 @@ from pathlib import Path
 import pytest
 
 from fluorescence_inference.publication_verification import (
+    COMMAND_AUDIT_RUNTIME_PATH_STRINGS,
     PROVENANCE_ONLY_PATH_STRINGS,
     PUBLIC_ASSET_PATHS,
     REQUIRED_SEED_KEYS,
     PublicationVerificationError,
     build_publication_manifest,
+    command_audit_scientific_sha256,
+    verify_command_audit_files,
     verify_reviewed_artifacts,
     write_publication_manifest,
 )
@@ -75,10 +79,53 @@ def _write_json(path: Path, value: dict) -> None:
     )
 
 
+def _write_command_audit(path: Path, value: dict) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(value, indent=2, default=str),
+        encoding="utf-8",
+    )
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _command_audit(commit: str, branch: str) -> dict:
+    return {
+        "provenance": {
+            "git": {
+                "commit": commit,
+                "dirty": False,
+                "branch": branch,
+            }
+        },
+        "aggregate": {
+            "n_shots_with_all_frames": 10,
+            "exposure_ms_values": [50.0],
+        },
+        "command_audit": {
+            "all_shots_passed": True,
+            "switch_states_verified_every_shot": True,
+            "dds_amplitude_constant_every_shot": True,
+            "max_abs_trigger_edge_error_s": 1e-9,
+        },
+    }
+
+
 def _publication_fixture(root: Path):
     reviewed_result = root / "reports" / "loss_sweep_results.json"
     paired_metadata = root / "assets" / "readme" / "asset_metadata.json"
-    _write_json(reviewed_result, _result())
+    reviewed = _result()
+    reviewed_audits: dict[str, Path] = {}
+    for label, field in (
+        ("dark_hold", "dark_command_audit_sha256"),
+        ("bright_wait", "bright_command_audit_sha256"),
+    ):
+        path = root / "reviewed_audits" / f"{label}.json"
+        reviewed["provenance"][field] = _write_command_audit(
+            path,
+            _command_audit("a" * 40, "analysis-worktree"),
+        )
+        reviewed_audits[label] = path
+    _write_json(reviewed_result, reviewed)
     _write_json(
         paired_metadata,
         {
@@ -107,6 +154,17 @@ def _publication_fixture(root: Path):
     candidate["provenance"]["inference_repository"]["branch"] = (
         "publication-branch"
     )
+    candidate_audits: dict[str, Path] = {}
+    for label, field in (
+        ("dark_hold", "dark_command_audit_sha256"),
+        ("bright_wait", "bright_command_audit_sha256"),
+    ):
+        path = candidate_root / "audits" / f"{label}.json"
+        candidate["provenance"][field] = _write_command_audit(
+            path,
+            _command_audit("e" * 40, "publication-branch"),
+        )
+        candidate_audits[label] = path
     _write_json(candidate_result, candidate)
     candidate_assets: dict[str, Path] = {}
     for relative in PUBLIC_ASSET_PATHS:
@@ -118,6 +176,8 @@ def _publication_fixture(root: Path):
         candidate_result,
         manifest_path,
         candidate_assets,
+        reviewed_audits,
+        candidate_audits,
     )
 
 
@@ -127,6 +187,8 @@ def test_reviewed_verification_detects_scientific_payload_mutation(scratch):
         candidate_result,
         manifest_path,
         candidate_assets,
+        _,
+        candidate_audits,
     ) = _publication_fixture(scratch)
 
     summary = verify_reviewed_artifacts(
@@ -135,6 +197,7 @@ def test_reviewed_verification_detects_scientific_payload_mutation(scratch):
         candidate_result_path=candidate_result,
         manifest_path=manifest_path,
         candidate_assets=candidate_assets,
+        candidate_command_audits=candidate_audits,
     )
     assert summary["n_assets_verified"] == len(PUBLIC_ASSET_PATHS)
     assert summary["provenance_only_exclusions"] == list(
@@ -153,6 +216,7 @@ def test_reviewed_verification_detects_scientific_payload_mutation(scratch):
             candidate_result_path=candidate_result,
             manifest_path=manifest_path,
             candidate_assets=candidate_assets,
+            candidate_command_audits=candidate_audits,
         )
     message = str(caught.value)
     assert "scientific payload drift" in message
@@ -191,6 +255,8 @@ def test_only_declared_runtime_git_fields_are_excluded(
         candidate_result,
         manifest_path,
         candidate_assets,
+        _,
+        candidate_audits,
     ) = _publication_fixture(scratch)
     candidate = json.loads(candidate_result.read_text(encoding="utf-8"))
     target = candidate
@@ -206,11 +272,12 @@ def test_only_declared_runtime_git_fields_are_excluded(
             candidate_result_path=candidate_result,
             manifest_path=manifest_path,
             candidate_assets=candidate_assets,
+            candidate_command_audits=candidate_audits,
         )
 
 
 def test_manifest_contains_no_machine_path_or_self_hash(scratch):
-    reviewed_result, _, manifest_path, _ = _publication_fixture(scratch)
+    reviewed_result, _, manifest_path, _, _, _ = _publication_fixture(scratch)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     serialized = manifest_path.read_text(encoding="utf-8")
     assert str(scratch) not in serialized
@@ -221,6 +288,89 @@ def test_manifest_contains_no_machine_path_or_self_hash(scratch):
     assert manifest["verification"]["scientific_payload_excluded_paths"] == list(
         PROVENANCE_ONLY_PATH_STRINGS
     )
+
+
+def test_command_audit_runtime_git_identity_is_canonicalized(scratch):
+    reviewed = _command_audit("a" * 40, "HEAD")
+    candidate = _command_audit("b" * 40, "publication-branch")
+    assert command_audit_scientific_sha256(
+        reviewed
+    ) == command_audit_scientific_sha256(candidate)
+
+    reviewed_path = scratch / "reviewed.json"
+    candidate_path = scratch / "candidate.json"
+    _write_command_audit(reviewed_path, reviewed)
+    _write_command_audit(candidate_path, candidate)
+    summary = verify_command_audit_files(
+        reviewed_path=reviewed_path,
+        candidate_path=candidate_path,
+        label="dark_hold",
+    )
+    assert summary["reviewed_canonical_sha256"] == (
+        summary["candidate_canonical_sha256"]
+    )
+    assert summary["runtime_provenance_exclusions"] == list(
+        COMMAND_AUDIT_RUNTIME_PATH_STRINGS
+    )
+
+
+def test_scientific_command_audit_mutation_fails_verification(scratch):
+    (
+        reviewed_result,
+        candidate_result,
+        manifest_path,
+        candidate_assets,
+        _,
+        candidate_audits,
+    ) = _publication_fixture(scratch)
+    candidate = json.loads(candidate_result.read_text(encoding="utf-8"))
+    dark_path = candidate_audits["dark_hold"]
+    dark = json.loads(dark_path.read_text(encoding="utf-8"))
+    dark["command_audit"]["dds_amplitude_constant_every_shot"] = False
+    candidate["provenance"]["dark_command_audit_sha256"] = (
+        _write_command_audit(dark_path, dark)
+    )
+    _write_json(candidate_result, candidate)
+
+    with pytest.raises(
+        PublicationVerificationError,
+        match="reviewed reconstruction drift",
+    ):
+        verify_reviewed_artifacts(
+            reviewed_root=scratch,
+            reviewed_result_path=reviewed_result,
+            candidate_result_path=candidate_result,
+            manifest_path=manifest_path,
+            candidate_assets=candidate_assets,
+            candidate_command_audits=candidate_audits,
+        )
+
+
+@pytest.mark.parametrize("failure", ["missing", "malformed"])
+def test_missing_or_malformed_command_audit_fails(scratch, failure):
+    (
+        reviewed_result,
+        candidate_result,
+        manifest_path,
+        candidate_assets,
+        _,
+        candidate_audits,
+    ) = _publication_fixture(scratch)
+    dark_path = candidate_audits["dark_hold"]
+    if failure == "missing":
+        dark_path.unlink()
+    else:
+        dark_path.write_text("{not valid JSON", encoding="utf-8")
+
+    with pytest.raises(PublicationVerificationError):
+        verify_reviewed_artifacts(
+            reviewed_root=scratch,
+            reviewed_result_path=reviewed_result,
+            candidate_result_path=candidate_result,
+            manifest_path=manifest_path,
+            candidate_assets=candidate_assets,
+            candidate_command_audits=candidate_audits,
+        )
 
 
 def test_provenance_seeds_are_read_from_serialized_analysis_blocks(repo_root):

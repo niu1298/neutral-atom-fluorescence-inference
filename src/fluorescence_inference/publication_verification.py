@@ -12,6 +12,7 @@ import copy
 import hashlib
 import importlib.metadata
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -25,6 +26,17 @@ PROVENANCE_ONLY_PATHS: tuple[tuple[str, ...], ...] = (
 PROVENANCE_ONLY_PATH_STRINGS = tuple(
     ".".join(path) for path in PROVENANCE_ONLY_PATHS
 )
+COMMAND_AUDIT_RUNTIME_PATHS: tuple[tuple[str, ...], ...] = (
+    ("provenance", "git", "commit"),
+    ("provenance", "git", "branch"),
+)
+COMMAND_AUDIT_RUNTIME_PATH_STRINGS = tuple(
+    ".".join(path) for path in COMMAND_AUDIT_RUNTIME_PATHS
+)
+COMMAND_AUDIT_RESULT_FIELDS = {
+    "dark_hold": "dark_command_audit_sha256",
+    "bright_wait": "bright_command_audit_sha256",
+}
 PUBLIC_ASSET_PATHS = (
     "assets/readme/fluorescence_inference_overview.gif",
     "assets/readme/sequence_design.png",
@@ -108,6 +120,57 @@ def scientific_payload_sha256(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         _canonical_json_bytes(canonical_scientific_payload(payload))
     ).hexdigest()
+
+
+def canonical_command_audit_payload(
+    audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Remove only the two verified runtime Git identifiers from an audit."""
+    if not isinstance(audit, Mapping):
+        raise PublicationVerificationError(
+            "command audit must contain a JSON object"
+        )
+    canonical = copy.deepcopy(dict(audit))
+    for path in COMMAND_AUDIT_RUNTIME_PATHS:
+        _drop_path(canonical, path)
+    return canonical
+
+
+def command_audit_scientific_sha256(audit: Mapping[str, Any]) -> str:
+    """Hash every command-audit field except commit and branch identity."""
+    return hashlib.sha256(
+        _canonical_json_bytes(canonical_command_audit_payload(audit))
+    ).hexdigest()
+
+
+def verify_command_audit_files(
+    *,
+    reviewed_path: Path,
+    candidate_path: Path,
+    label: str,
+) -> dict[str, Any]:
+    """Compare two existing audits after the explicit runtime-only exclusion."""
+    reviewed = _read_json_object(reviewed_path, f"reviewed {label} audit")
+    candidate = _read_json_object(candidate_path, f"candidate {label} audit")
+    reviewed_hash = command_audit_scientific_sha256(reviewed)
+    candidate_hash = command_audit_scientific_sha256(candidate)
+    if reviewed_hash != candidate_hash:
+        differences = json_difference_paths(
+            canonical_command_audit_payload(reviewed),
+            canonical_command_audit_payload(candidate),
+        )
+        raise PublicationVerificationError(
+            f"{label} command-audit scientific payload drift: "
+            f"reviewed={reviewed_hash} candidate={candidate_hash}; "
+            f"differing_paths={differences}"
+        )
+    return {
+        "reviewed_canonical_sha256": reviewed_hash,
+        "candidate_canonical_sha256": candidate_hash,
+        "runtime_provenance_exclusions": list(
+            COMMAND_AUDIT_RUNTIME_PATH_STRINGS
+        ),
+    }
 
 
 def json_difference_paths(
@@ -342,6 +405,120 @@ def write_publication_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
     )
 
 
+def _audit_writer_bytes(audit: Mapping[str, Any]) -> bytes:
+    """Match the deterministic JSON serialization used by the audit command."""
+    text = json.dumps(dict(audit), indent=2, default=str)
+    if os.linesep != "\n":
+        text = text.replace("\n", os.linesep)
+    return text.encode("utf-8")
+
+
+def _verify_candidate_command_audit(
+    *,
+    label: str,
+    field: str,
+    candidate_path: Path,
+    reviewed: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Verify a candidate audit before reconciling its raw result hash."""
+    audit = _read_json_object(candidate_path, f"candidate {label} audit")
+    actual_candidate_hash = sha256_file(candidate_path)
+    declared_candidate_hash = _nested(candidate, "provenance", field)
+    if declared_candidate_hash != actual_candidate_hash:
+        raise PublicationVerificationError(
+            f"{label} command-audit/result hash linkage failed: "
+            f"declared={declared_candidate_hash} "
+            f"actual={actual_candidate_hash}"
+        )
+
+    reviewed_result_hash = _nested(reviewed, "provenance", field)
+    reviewed_manifest_hash = _nested(
+        manifest, "validation_inputs", field
+    )
+    if reviewed_result_hash != reviewed_manifest_hash:
+        raise PublicationVerificationError(
+            f"{label} reviewed command-audit hash disagrees between "
+            "the result and publication manifest"
+        )
+
+    reviewed_git = _nested(
+        reviewed, "provenance", "inference_repository", default={}
+    )
+    candidate_git = _nested(
+        candidate, "provenance", "inference_repository", default={}
+    )
+    audit_git = _nested(audit, "provenance", "git", default={})
+    if not all(
+        isinstance(value, Mapping)
+        for value in (reviewed_git, candidate_git, audit_git)
+    ):
+        raise PublicationVerificationError(
+            f"{label} command audit has malformed Git provenance"
+        )
+    for key in ("commit", "branch", "dirty"):
+        if audit_git.get(key) != candidate_git.get(key):
+            raise PublicationVerificationError(
+                f"{label} command-audit runtime provenance does not match "
+                f"the candidate result at provenance.git.{key}"
+            )
+    if candidate_git.get("dirty") is not False:
+        raise PublicationVerificationError(
+            f"{label} command audit was not generated from a clean worktree"
+        )
+    if reviewed_git.get("dirty") is not False:
+        raise PublicationVerificationError(
+            f"{label} reviewed command audit was not certified clean"
+        )
+
+    reconstructed_reviewed = copy.deepcopy(audit)
+    reconstructed_git = _nested(
+        reconstructed_reviewed, "provenance", "git", default={}
+    )
+    if not isinstance(reconstructed_git, dict):
+        raise PublicationVerificationError(
+            f"{label} command audit has malformed Git provenance"
+        )
+    for key in ("commit", "branch"):
+        reviewed_value = reviewed_git.get(key)
+        if not isinstance(reviewed_value, str) or not reviewed_value:
+            raise PublicationVerificationError(
+                f"{label} reviewed result has no Git {key}"
+            )
+        reconstructed_git[key] = reviewed_value
+
+    reconstructed_raw_hash = hashlib.sha256(
+        _audit_writer_bytes(reconstructed_reviewed)
+    ).hexdigest()
+    if reconstructed_raw_hash != reviewed_result_hash:
+        raise PublicationVerificationError(
+            f"{label} command-audit reviewed reconstruction drift: "
+            f"expected={reviewed_result_hash} "
+            f"actual={reconstructed_raw_hash}"
+        )
+
+    candidate_canonical_hash = command_audit_scientific_sha256(audit)
+    reviewed_canonical_hash = command_audit_scientific_sha256(
+        reconstructed_reviewed
+    )
+    if candidate_canonical_hash != reviewed_canonical_hash:
+        raise PublicationVerificationError(
+            f"{label} command-audit canonical hash drift: "
+            f"reviewed={reviewed_canonical_hash} "
+            f"candidate={candidate_canonical_hash}"
+        )
+    return {
+        "reviewed_canonical_sha256": reviewed_canonical_hash,
+        "candidate_canonical_sha256": candidate_canonical_hash,
+        "candidate_raw_sha256": actual_candidate_hash,
+        "reviewed_raw_sha256": reviewed_result_hash,
+        "runtime_provenance_exclusions": list(
+            COMMAND_AUDIT_RUNTIME_PATH_STRINGS
+        ),
+    }
+
+
 def verify_reviewed_artifacts(
     *,
     reviewed_root: Path,
@@ -349,6 +526,7 @@ def verify_reviewed_artifacts(
     candidate_result_path: Path,
     manifest_path: Path,
     candidate_assets: Mapping[str, Path],
+    candidate_command_audits: Mapping[str, Path],
 ) -> dict[str, Any]:
     """Verify a temporary candidate without modifying reviewed artifacts."""
     reviewed_root = Path(reviewed_root)
@@ -405,8 +583,36 @@ def verify_reviewed_artifacts(
             "candidate result does not record a clean generation worktree"
         )
 
+    audit_summaries: dict[str, dict[str, Any]] = {}
+    for label, field in COMMAND_AUDIT_RESULT_FIELDS.items():
+        candidate_audit_path = candidate_command_audits.get(label)
+        if candidate_audit_path is None:
+            errors.append(f"candidate {label} command audit missing")
+            continue
+        try:
+            audit_summaries[label] = _verify_candidate_command_audit(
+                label=label,
+                field=field,
+                candidate_path=Path(candidate_audit_path),
+                reviewed=reviewed,
+                candidate=candidate,
+                manifest=manifest,
+            )
+        except PublicationVerificationError as exc:
+            errors.append(str(exc))
+
     reviewed_scientific = canonical_scientific_payload(reviewed)
     candidate_scientific = canonical_scientific_payload(candidate)
+    if not errors:
+        reviewed_provenance = reviewed_scientific.get("provenance", {})
+        candidate_provenance = candidate_scientific.get("provenance", {})
+        if not isinstance(
+            reviewed_provenance, dict
+        ) or not isinstance(candidate_provenance, dict):
+            errors.append("result provenance is not an object")
+        else:
+            for field in COMMAND_AUDIT_RESULT_FIELDS.values():
+                candidate_provenance[field] = reviewed_provenance.get(field)
     reviewed_scientific_hash = hashlib.sha256(
         _canonical_json_bytes(reviewed_scientific)
     ).hexdigest()
@@ -463,4 +669,5 @@ def verify_reviewed_artifacts(
         "candidate_scientific_payload_sha256": candidate_scientific_hash,
         "n_assets_verified": len(manifest_assets),
         "provenance_only_exclusions": list(PROVENANCE_ONLY_PATH_STRINGS),
+        "command_audits": audit_summaries,
     }

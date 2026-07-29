@@ -45,6 +45,7 @@ CODE_GUARD_PATHS = (
     # Publication Commit B may repair this non-scientific verifier without
     # changing the analysis implementation or any generator it launches.
     ":(exclude)scripts/reproduce_all.py",
+    ":(exclude)src/fluorescence_inference/publication_verification.py",
 )
 
 DETERMINISTIC_ENVIRONMENT = {
@@ -692,6 +693,10 @@ def verify_reviewed(
             candidate_result_path=candidate_result,
             manifest_path=manifest_path,
             candidate_assets=candidate_assets,
+            candidate_command_audits={
+                "dark_hold": paths.dark_command_audit,
+                "bright_wait": paths.bright_command_audit,
+            },
         )
     print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
     return summary
