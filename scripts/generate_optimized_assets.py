@@ -26,7 +26,6 @@ from fluorescence_inference.reporting import (  # noqa: E402
     INK,
     MUTED,
     OK,
-    SOFT,
     WARN,
     apply_style,
     assert_public_safe,
@@ -56,6 +55,10 @@ ASSET_NAMES = (
     "optimized_readout_tradeoff.png",
 )
 EXPOSURE_COLORS = {"50ms": ACCENT, "100ms": OK, "200ms": ACCENT_2}
+HIST_FILL = "#66727f"
+HIST_EDGE = "#3d4650"
+HIST_ALPHA = 0.82
+CORRECTED_HIST_EDGE = "#1f4d70"
 
 
 class AssetInputError(ValueError):
@@ -207,9 +210,17 @@ def _draw_occupancy(result: Mapping[str, Any], path: Path) -> None:
         ax.fill_between(
             x,
             distribution["heldout_density"],
-            color=SOFT,
+            color=HIST_FILL,
+            alpha=0.45,
             step="mid",
             label="held-out counts",
+        )
+        ax.step(
+            x,
+            distribution["heldout_density"],
+            where="mid",
+            color=HIST_EDGE,
+            linewidth=1.0,
         )
         ax.plot(x, distribution["model_empty_density"], color=ACCENT, label="empty component")
         ax.plot(
@@ -341,8 +352,14 @@ def _render_story_scene(
         bar = fig.add_axes([0.58, 0.27, 0.34, 0.45])
         values = [float(row[key]) for key in
                   ("roi_sum_raw", "background_fixed_offset", "background_corrected_count")]
-        bars = bar.bar(["raw ROI", "site-free\nbackground", "corrected\nsignal"], values,
-                       color=[SOFT, ACCENT, ACCENT_2], edgecolor=INK, linewidth=0.7)
+        bars = bar.bar(
+            ["raw ROI", "site-free\nbackground", "corrected\nsignal"],
+            values,
+            color=[HIST_FILL, ACCENT, ACCENT_2],
+            edgecolor=[HIST_EDGE, INK, INK],
+            alpha=HIST_ALPHA,
+            linewidth=0.7,
+        )
         for patch, value in zip(bars, values):
             bar.text(patch.get_x() + patch.get_width() / 2, value, f"{value:,.0f}",
                      ha="center", va="bottom", fontsize=9.5)
@@ -352,8 +369,14 @@ def _render_story_scene(
         values = story.heldout_raw_counts if index == 3 else story.heldout_corrected_counts
         ax = fig.add_axes([0.09, 0.20, 0.82, 0.60])
         limits = np.percentile(values, (0.2, 99.8))
-        ax.hist(values, bins=np.linspace(*limits, 70),
-                color=SOFT if index == 3 else ACCENT, edgecolor="white", linewidth=0.3)
+        ax.hist(
+            values,
+            bins=np.linspace(*limits, 70),
+            color=HIST_FILL if index == 3 else ACCENT,
+            edgecolor=HIST_EDGE if index == 3 else CORRECTED_HIST_EDGE,
+            alpha=HIST_ALPHA if index == 3 else 0.80,
+            linewidth=0.35,
+        )
         ax.set_xlabel("raw ROI count" if index == 3 else "background-corrected count")
         ax.set_ylabel("held-out site-frame observations")
         _story_caption(fig, "Same 20 held-out shots before correction." if index == 3 else
@@ -363,8 +386,21 @@ def _render_story_scene(
         distribution, metrics = block["public_heldout_distribution"], _selected_emission_metrics(block)
         x = np.asarray(distribution["bin_centers"], dtype=float)
         ax = fig.add_axes([0.09, 0.20, 0.82, 0.60])
-        ax.fill_between(x, distribution["heldout_density"], step="mid", color=SOFT,
-                        label="held-out counts")
+        ax.fill_between(
+            x,
+            distribution["heldout_density"],
+            step="mid",
+            color=HIST_FILL,
+            alpha=0.45,
+            label="held-out counts",
+        )
+        ax.step(
+            x,
+            distribution["heldout_density"],
+            where="mid",
+            color=HIST_EDGE,
+            linewidth=1.0,
+        )
         ax.plot(x, distribution["model_empty_density"], color=ACCENT, lw=2, label="empty component")
         ax.plot(x, distribution["model_occupied_density"], color=ACCENT_2, lw=2, label="occupied component")
         ax.set_xlabel("background-corrected count"); ax.set_ylabel("density"); ax.legend(loc="upper right")
@@ -441,13 +477,33 @@ def _draw_occupancy_summary(
                        facecolors="none", edgecolors="#7fe3ff", linewidths=0.6)
     axes[0, 0].set_title("raw frame + frozen ROIs"); axes[0, 0].set_axis_off()
     limits = np.percentile(story.heldout_corrected_counts, (0.2, 99.8))
-    axes[0, 1].hist(story.heldout_corrected_counts, bins=np.linspace(*limits, 55),
-                    color=SOFT, edgecolor="white", linewidth=0.25)
+    axes[0, 1].hist(
+        story.heldout_corrected_counts,
+        bins=np.linspace(*limits, 55),
+        color=ACCENT,
+        edgecolor=CORRECTED_HIST_EDGE,
+        alpha=0.80,
+        linewidth=0.35,
+    )
     axes[0, 1].set_title("background-corrected held-out counts")
     axes[0, 1].set_xlabel("corrected count"); axes[0, 1].set_ylabel("observations")
     block = result["repeated_imaging"]["emission_models_by_exposure"]["100ms"]
     distribution = block["public_heldout_distribution"]; x = np.asarray(distribution["bin_centers"], dtype=float)
-    axes[1, 0].fill_between(x, distribution["heldout_density"], step="mid", color=SOFT)
+    axes[1, 0].fill_between(
+        x,
+        distribution["heldout_density"],
+        step="mid",
+        color=HIST_FILL,
+        alpha=0.45,
+        label="held-out counts",
+    )
+    axes[1, 0].step(
+        x,
+        distribution["heldout_density"],
+        where="mid",
+        color=HIST_EDGE,
+        linewidth=1.0,
+    )
     axes[1, 0].plot(x, distribution["model_empty_density"], color=ACCENT, lw=1.8, label="empty")
     axes[1, 0].plot(x, distribution["model_occupied_density"], color=ACCENT_2, lw=1.8, label="occupied")
     axes[1, 0].set_title("held-out emission model"); axes[1, 0].set_xlabel("corrected count")
@@ -513,6 +569,14 @@ def _draw_sequence(path: Path) -> None:
     axes[2].set_xlim(-0.15, 5.15)
     axes[2].set_xticks([])
     fig.suptitle("Optimized measurement designs", fontsize=14, fontweight="bold")
+    fig.text(
+        0.99,
+        0.01,
+        "Schematic; pulse widths are not to scale.",
+        ha="right",
+        color=MUTED,
+        fontsize=8.5,
+    )
     save(fig, path, dpi=170)
 
 

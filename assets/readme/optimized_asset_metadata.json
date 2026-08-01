@@ -1,7 +1,7 @@
 {
   "analysis_code_commit": "aa97a7e318cf184c0fcd004e895c061ba5eb1aca",
   "animation": {
-    "bytes": 2723786,
+    "bytes": 2801743,
     "duration_s": 11.5,
     "fps": 10,
     "height_px": 600,
@@ -18,20 +18,20 @@
       "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
     },
     "optimized_occupancy_inference.gif": {
-      "bytes": 2723786,
-      "sha256": "40a99a1d7fdf1f0a89ff06b97f18a65081bc1aa73a73842965390e0d2f960157"
+      "bytes": 2801743,
+      "sha256": "123e205934896e73ab82a215b6a1e91277d4ff04c4acdbd77e30363f22be8bb7"
     },
     "optimized_occupancy_inference.png": {
-      "bytes": 142672,
-      "sha256": "aa8deacbc201b716ae1a8e749655a112acee05fa234f1308271c8cb8ac099131"
+      "bytes": 145396,
+      "sha256": "9ff926a710784bfcc28e2b371b4bee0ab0a6ebdd1a3168d0668ca7a6c2c5320d"
     },
     "optimized_readout_tradeoff.png": {
       "bytes": 147316,
       "sha256": "ed2e5c16e14823dbee79af69710d2961e4ce5e6f64c46318d82a622b1d6c9c96"
     },
     "optimized_sequence_design.png": {
-      "bytes": 58097,
-      "sha256": "faee25a2ea004fcea79059820dc387f5b50f21566a906961893c12320cc61f95"
+      "bytes": 64551,
+      "sha256": "d278e267d4b8ea910392ee5e2d6cf6c42f8d659ec12291bebee682f2ad0e698c"
     }
   },
   "generated_by": "scripts/generate_optimized_assets.py",

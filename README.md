@@ -78,7 +78,7 @@ parentheses are 95% complete-shot intervals.
 | dark operational lifetime | **35.73 s** (32.09–40.26 s) |
 | bright operational lifetime | **20.30 s** (17.94–23.56 s) |
 | model-implied overlap | **0.59% / 0.33% / 0.20%** at 50 / 100 / 200 ms |
-| selected-model five-frame survival | **98.67% / 97.46% / 95.09%** at 50 / 100 / 200 ms |
+| selected-model predicted five-frame survival | **98.67% / 97.46% / 95.09%** at 50 / 100 / 200 ms |
 | pulse segmentation | no material additional pulse term selected |
 
 ![Dark and bright lifetime fits, clustered intervals, and the selected rate-based loss budget](assets/readme/optimized_lifetime_overview.png)

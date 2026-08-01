@@ -75,7 +75,7 @@ def test_main_table_has_only_requested_results():
         "dark operational lifetime",
         "bright operational lifetime",
         "model-implied overlap",
-        "selected-model five-frame survival",
+        "selected-model predicted five-frame survival",
         "pulse segmentation",
     ):
         assert phrase in section

@@ -93,6 +93,32 @@ def _hashes(directory: Path):
     return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in assets.ASSET_NAMES}
 
 
+def _relative_luminance(rgb: tuple[float, float, float]) -> float:
+    channels = [
+        value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+        for value in rgb
+    ]
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _hex_rgb(value: str) -> tuple[float, float, float]:
+    return tuple(int(value[index:index + 2], 16) / 255 for index in (1, 3, 5))
+
+
+def _contrast_ratio(foreground: str, background: str, alpha: float) -> float:
+    fg = _hex_rgb(foreground)
+    bg = _hex_rgb(background)
+    composite = tuple(alpha * front + (1 - alpha) * back for front, back in zip(fg, bg))
+    light = _relative_luminance(bg)
+    dark = _relative_luminance(composite)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def test_histogram_fill_has_visible_panel_contrast():
+    assert _contrast_ratio(assets.HIST_FILL, "#ffffff", assets.HIST_ALPHA) >= 3.0
+    assert assets.HIST_EDGE.lower() != "#ffffff"
+
+
 def _story() -> assets.OccupancyStoryData:
     y, x = np.mgrid[:120, :140]
     raw = 100 + 20 * np.sin(x / 13) + 15 * np.cos(y / 11)
@@ -142,6 +168,12 @@ def test_assets_are_deterministic_and_gated(tmp_path):
             animation.seek(index) or animation.info["duration"]
             for index in range(animation.n_frames)
         ) / 1000 == pytest.approx(11.5)
+        target = np.asarray([int(assets.HIST_FILL[index:index + 2], 16) for index in (1, 3, 5)])
+        for scene_index in (3, 5):
+            animation.seek(scene_index * (assets.STORY_TRANSITION_FRAMES + 1))
+            pixels = np.asarray(animation.convert("RGB"), dtype=int)
+            distance = np.max(np.abs(pixels - target), axis=2)
+            assert np.count_nonzero(distance < 48) > 2_000
     metadata = json.loads((first / "optimized_asset_metadata.json").read_text())
     assert metadata["representative_selection"]["uses_frozen_geometry_background_and_emissions"] is True
     assert metadata["animation"]["bytes"] < 8_000_000
