@@ -24,6 +24,7 @@ configs/*.local.yaml
 # ---------------------------------------------------------------- artefacts
 assets/readme/frames/
 .venv/
+.venv_broken_20260801/
 __pycache__/
 *.py[cod]
 *.egg-info/

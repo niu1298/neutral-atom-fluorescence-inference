@@ -39,8 +39,12 @@ def _existing(df: pd.DataFrame, names: Sequence[str]) -> str | None:
 
 
 def _finite_pair(x: Iterable[float], y: Iterable[float]) -> tuple[np.ndarray, np.ndarray]:
-    xa = np.asarray(list(x), dtype=float)
-    ya = np.asarray(list(y), dtype=float)
+    xa = pd.to_numeric(pd.Series(list(x)), errors="coerce").to_numpy(
+        dtype=float, na_value=np.nan
+    )
+    ya = pd.to_numeric(pd.Series(list(y)), errors="coerce").to_numpy(
+        dtype=float, na_value=np.nan
+    )
     keep = np.isfinite(xa) & np.isfinite(ya)
     return xa[keep], ya[keep]
 
@@ -612,8 +616,9 @@ def fit_geometry_subsets(
     train = ordered.loc[ordered["split"] == "train"]
     half = len(ordered) // 2
     train_half = max(1, len(train) // 2)
-    sweep = ordered["sweep_value_s"].astype(float)
-    lo, hi = float(sweep.min()), float(sweep.max())
+    sweep = pd.to_numeric(ordered["sweep_value_s"], errors="coerce")
+    has_condition_sweep = bool(sweep.notna().all() and sweep.nunique() > 1)
+    endpoint_n = max(10, len(ordered) // 10)
     subset_rows = {
         "train": train,
         "all_unsupervised": ordered,
@@ -621,9 +626,15 @@ def fit_geometry_subsets(
         "late": ordered.iloc[half:],
         "train_early": train.iloc[:train_half],
         "train_late": train.iloc[train_half:],
-        "shortest_condition": ordered.loc[np.isclose(sweep, lo)],
-        "longest_condition": ordered.loc[np.isclose(sweep, hi)],
+        "run_start": ordered.head(endpoint_n),
+        "run_end": ordered.tail(endpoint_n),
     }
+    if has_condition_sweep:
+        lo, hi = float(sweep.min()), float(sweep.max())
+        subset_rows.update(
+            shortest_condition=ordered.loc[np.isclose(sweep, lo)],
+            longest_condition=ordered.loc[np.isclose(sweep, hi)],
+        )
     hw = int(cfg["roi"]["trap_half_width"])
     fits: dict[str, Any] = {}
     mean_images: dict[str, np.ndarray] = {}
@@ -681,9 +692,13 @@ def fit_geometry_subsets(
     comparisons = {
         "early_vs_late": ("early", "late"),
         "train_early_vs_train_late": ("train_early", "train_late"),
-        "shortest_vs_longest": ("shortest_condition", "longest_condition"),
+        "run_start_vs_run_end": ("run_start", "run_end"),
         "train_vs_all_unsupervised": ("train", "all_unsupervised"),
     }
+    if has_condition_sweep:
+        comparisons["shortest_vs_longest"] = (
+            "shortest_condition", "longest_condition"
+        )
     rigid_fits: dict[str, Any] = {}
     if "train" in fits:
         from rydlab.atoms.lattice_fit import bandpass
@@ -704,7 +719,7 @@ def fit_geometry_subsets(
     required_gate_names = {
         "early_vs_late",
         "train_early_vs_train_late",
-        "shortest_vs_longest",
+        "shortest_vs_longest" if has_condition_sweep else "run_start_vs_run_end",
     }
     for label, (a, b) in comparisons.items():
         if a not in fits or b not in fits:
@@ -733,7 +748,7 @@ def fit_geometry_subsets(
             result["rigid_train_shape_registration"] = rigid
         gate_source = (
             "rigid_train_shape_registration"
-            if label == "shortest_vs_longest"
+            if label in {"shortest_vs_longest", "run_start_vs_run_end"}
             else "registered"
         )
         gate_report = result[gate_source]
@@ -760,7 +775,7 @@ def fit_geometry_subsets(
                 )
         result["interpretation"] = (
             "Free matched-template coordinates and integer index aliases are "
-            "reported. Ten-shot endpoint gates use independently fitted bulk "
+            "reported. Endpoint gates use independently fitted bulk "
             "translations of the training-frozen pitch and tilt because the "
             "endpoint subsets do not identify the periodic index origin."
         )
@@ -787,6 +802,7 @@ def fit_geometry_subsets(
         "loader": loader_name,
         "primary_geometry_subset": "train",
         "sensitivity_geometry_subset": "all_unsupervised",
+        "condition_sweep_available": has_condition_sweep,
         "subset_fits": fit_summaries,
         "fit_failures": failures,
         "rigid_train_shape_fits": {

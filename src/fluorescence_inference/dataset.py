@@ -33,8 +33,11 @@ from .sites import (
 )
 from .splits import (
     CHRONOLOGICAL_STRATEGY,
+    CHRONOLOGICAL_SHOT_STRATEGY,
     SEEDED_STRATEGY,
+    SEEDED_BLOCK_STRATEGY,
     build_cycle_split_manifest,
+    build_shot_split_manifest,
 )
 
 
@@ -160,16 +163,62 @@ def _float_or_none(v: Any) -> float | None:
 def _shot_design(
     cfg: Config, metas: list[ShotMeta]
 ) -> tuple[pd.DataFrame | None, dict[str, Any] | None, dict[str, Any] | None]:
-    """Build the exact condition/cycle/split map for a schema-V3 sweep."""
+    """Build the exact condition/cycle/split map for schema V3/V4 runs."""
     if cfg.schema_version == schema.SCHEMA_VERSION:
         return None, None, None
-    if cfg.schema_version != schema.V3_SCHEMA_VERSION:
+    if cfg.schema_version not in (schema.V3_SCHEMA_VERSION, schema.V4_SCHEMA_VERSION):
         raise SourceDataError(f"unsupported configured schema version {cfg.schema_version!r}")
 
     sweep = cfg.get("sweep")
     split_cfg = cfg.get("split")
-    if not isinstance(sweep, dict) or not isinstance(split_cfg, dict):
-        raise SourceDataError("schema 3.0 configs require `sweep` and `split` mappings")
+    if not isinstance(split_cfg, dict):
+        raise SourceDataError("schema 3.0/4.0 configs require a `split` mapping")
+
+    if not isinstance(sweep, dict):
+        if cfg.schema_version != schema.V4_SCHEMA_VERSION:
+            raise SourceDataError("schema 3.0 configs require a `sweep` mapping")
+        design_cfg = cfg.get("design", {}) or {}
+        if str(design_cfg.get("kind", "")) != "fixed_condition":
+            raise SourceDataError(
+                "schema 4.0 without a sweep requires design.kind=fixed_condition"
+            )
+        condition_id = str(design_cfg.get("condition_id", "single_condition"))
+        repeat_global = str(design_cfg.get("repetition_global", "REPEAT"))
+        rows: list[dict[str, Any]] = []
+        for meta in metas:
+            repeat = _int_or_none(meta.globals_hash_input.get(repeat_global))
+            if repeat is None:
+                repeat = meta.shot_order
+            if bool(design_cfg.get("verify_repetition_matches_order", True)) and (
+                repeat != meta.shot_order
+            ):
+                raise SourceDataError(
+                    f"{meta.path.name}: {repeat_global}={repeat} does not match "
+                    f"shot_order={meta.shot_order}"
+                )
+            rows.append({
+                "shot_id": meta.shot_id,
+                "shot_order": meta.shot_order,
+                "condition_id": condition_id,
+                "sweep_value_s": np.nan,
+                "repetition_index": int(repeat),
+                "cycle_index": int(meta.shot_order),
+            })
+        design = pd.DataFrame(rows)
+        strategy = str(split_cfg.get("strategy", CHRONOLOGICAL_SHOT_STRATEGY))
+        seed = int(split_cfg.get("seed", 0))
+        primary, primary_meta = build_shot_split_manifest(
+            design, strategy=strategy, seed=seed)
+        sensitivity_strategy = str(
+            split_cfg.get("sensitivity_strategy", SEEDED_BLOCK_STRATEGY))
+        sensitivity_seed = int(split_cfg.get("sensitivity_seed", 20260731))
+        sensitivity, sensitivity_meta = build_shot_split_manifest(
+            design, strategy=sensitivity_strategy, seed=sensitivity_seed)
+        sensitivity = sensitivity.rename(columns={"split": "sensitivity_split"})
+        combined = primary.merge(
+            sensitivity[["shot_id", "sensitivity_split"]],
+            on="shot_id", how="left", validate="one_to_one")
+        return combined, primary_meta, sensitivity_meta
 
     global_name = str(sweep["global"])
     axis = str(sweep["axis"])
@@ -626,14 +675,14 @@ def _extract_rows(cfg: Config, metas: list[ShotMeta], site_map: SiteMap,
                     "roi_n_pixels": n_px,
                     "roi_max_pixel": roi_max,
                     "site_detected": bool(site_map.detected[k]),
-                    **_v3_row_fields(
+                    **_versioned_row_fields(
                         cfg, m, fid, frame_specs[fid], split_lookup.get(m.shot_id),
                         grid_id=str(site_map.grid_name[k]), values=values),
                 })
     return rows, frame_diag
 
 
-def _v3_row_fields(
+def _versioned_row_fields(
     cfg: Config,
     meta: ShotMeta,
     frame_id: int,
@@ -643,7 +692,7 @@ def _v3_row_fields(
     grid_id: str,
     values: dict[str, float],
 ) -> dict[str, Any]:
-    """Add schema-V3 identifiers and commanded timing without inventing readback."""
+    """Add V3/V4 identifiers and commanded timing without inventing readback."""
     if cfg.schema_version == schema.SCHEMA_VERSION:
         return {}
     if design is None:
@@ -670,8 +719,13 @@ def _v3_row_fields(
     wait_global = str(cfg.get("timing", {}).get(
         "bright_wait_global", "WAIT_BEFORE_FIRST_FLUOR"))
     bright_wait = _float_or_none(meta.globals_hash_input.get(wait_global))
+    dark_gap_global = str(cfg.get("timing", {}).get(
+        "dark_gap_global", "SECOND_HAMAMATSU_FLUOR_DELAY"))
+    declared_dark_gap = _float_or_none(
+        meta.globals_hash_input.get(dark_gap_global))
     hardware = cfg.get("hardware", {}) or {}
-    return {
+    sweep = cfg.get("sweep") or {}
+    fields: dict[str, Any] = {
         "dataset_id": cfg.dataset_id,
         "date": str(cfg["date"]),
         "sequence_id": str(cfg["sequence_id"]),
@@ -680,8 +734,8 @@ def _v3_row_fields(
         "cycle_index": int(design["cycle_index"]),
         "condition_id": str(design["condition_id"]),
         "split": str(design["split"]),
-        "sweep_axis": str(cfg["sweep"]["axis"]),
-        "sweep_value_s": float(design["sweep_value_s"]),
+        "sweep_axis": (str(sweep["axis"]) if sweep else None),
+        "sweep_value_s": _float_or_none(design["sweep_value_s"]),
         "frame_index": int(frame_id),
         "frame_name": str(frame_spec["exposure_name"]),
         "frame_start_s": meta.frame_elapsed_s.get(frame_id),
@@ -689,7 +743,7 @@ def _v3_row_fields(
         "interframe_gap_s": gap,
         # The switch-off gap preceding a later fluorescence frame.  For the
         # bright-wait run this is the fixed 10 ms control gap.
-        "dark_hold_s": gap,
+        "dark_hold_s": declared_dark_gap if position > 0 else None,
         "bright_wait_before_first_s": bright_wait,
         # The files store commands and triggers but no optical-power readback.
         "actual_light_on_s": None,
@@ -702,6 +756,54 @@ def _v3_row_fields(
         "background_template_offset": values["background_fixed_offset"],
         "count_corrected_template": values["count_corrected_fixed_offset"],
     }
+    if cfg.schema_version == schema.V4_SCHEMA_VERSION:
+        ordered_ids = sorted(meta.frame_elapsed_s)
+        prefix_ids = ordered_ids[: position + 1]
+        cumulative_bright = sum(
+            float(meta.exposure_ms[fid]) / 1e3 for fid in prefix_ids
+            if meta.exposure_ms.get(fid) is not None
+        )
+        cumulative_dark = 0.0
+        for previous, current in zip(prefix_ids, prefix_ids[1:]):
+            if declared_dark_gap is not None:
+                cumulative_dark += declared_dark_gap
+            else:
+                previous_exposure = meta.exposure_ms.get(previous)
+                if previous_exposure is not None:
+                    cumulative_dark += (
+                        meta.frame_elapsed_s[current]
+                        - meta.frame_elapsed_s[previous]
+                        - previous_exposure / 1e3
+                    )
+        fields.update({
+            "bright_wait_s": bright_wait,
+            "cumulative_bright_s": cumulative_bright,
+            "cumulative_dark_s": cumulative_dark,
+            "pulse_count": position + 1,
+        })
+    return fields
+
+
+def _v3_row_fields(
+    cfg: Config,
+    meta: ShotMeta,
+    frame_id: int,
+    frame_spec: dict[str, Any],
+    design: dict[str, Any] | None,
+    *,
+    grid_id: str,
+    values: dict[str, float],
+) -> dict[str, Any]:
+    """Compatibility wrapper for callers written before schema V4 existed."""
+    return _versioned_row_fields(
+        cfg,
+        meta,
+        frame_id,
+        frame_spec,
+        design,
+        grid_id=grid_id,
+        values=values,
+    )
 
 
 def _touches_edge(box: tuple[int, int, int, int], shape: tuple[int, int],
@@ -821,9 +923,18 @@ def _run_level_metadata(
             "frame_name": "direct devices/hamamatsu/EXPOSURES name",
             "frame_start_s": "direct commanded EXPOSURES time",
             "exposure_s": "direct commanded EXPOSURES trigger_duration",
-            "condition": "direct evaluated swept global, matched to tracked config",
-            "cycle_index": "inferred from verified repeated cyclic acquisition order",
-            "repetition_index": "inferred cycle_index; stored REPEAT is fixed at zero",
+            "condition": (
+                "direct evaluated swept global, matched to tracked config"
+                if cfg.get("sweep") else "tracked fixed-condition design"
+            ),
+            "cycle_index": (
+                "inferred from verified repeated cyclic acquisition order"
+                if cfg.get("sweep") else "shot_order for a fixed-condition acquisition"
+            ),
+            "repetition_index": (
+                "inferred cycle_index; stored REPEAT is fixed at zero"
+                if cfg.get("sweep") else "direct REPEAT global; verified against shot_order"
+            ),
             "interframe_gap_s": "derived start-to-start minus preceding exposure",
             "switch_state": "compiled-command audit summarized in tracked config",
             "actual_light_on_s": "unrecoverable; no optical readback",

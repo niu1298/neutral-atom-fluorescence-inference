@@ -25,7 +25,10 @@ import numpy as np
 
 
 COMMAND_AUDIT_SCHEMA_VERSION = "1.0"
-SUPPORTED_SEQUENCE_TYPES = frozenset({"switch_off_hold", "bright_wait"})
+SUPPORTED_SEQUENCE_TYPES = frozenset({
+    "switch_off_hold", "bright_wait",
+    "dark_lifetime", "bright_lifetime", "repeated_imaging",
+})
 SCIENCE_SWITCH_NAMES = ("do_sci_img_light", "do_sci_img_light2")
 CAMERA_TRIGGER_NAME = "hamamatsu_trigger"
 DIGITAL_DEVICE_NAME = "prawn_do_0"
@@ -46,6 +49,9 @@ class CommandAuditSpec:
     exposures_dataset: str = "devices/hamamatsu/EXPOSURES"
     globals_group: str = "globals"
     expected_exposure_s: float | None = None
+    imaging_dds_device: str | None = None
+    imaging_dds_channels: tuple[int, ...] = ()
+    dark_gap_global: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,20 @@ def spec_from_config(cfg: Any) -> CommandAuditSpec:
             None
             if source.get("expected_exposure_s") is None
             else float(source["expected_exposure_s"])
+        ),
+        imaging_dds_device=(
+            str((cfg.get("hardware", {}) or {}).get("imaging_dds_device"))
+            if (cfg.get("hardware", {}) or {}).get("imaging_dds_device")
+            else None
+        ),
+        imaging_dds_channels=tuple(
+            int(value) for value in
+            (cfg.get("hardware", {}) or {}).get("imaging_dds_channels", [])
+        ),
+        dark_gap_global=str(
+            (cfg.get("timing", {}) or {}).get(
+                "dark_gap_global", "SECOND_HAMAMATSU_FLUOR_DELAY"
+            )
         ),
     )
 
@@ -529,6 +549,104 @@ def _duration_pattern(
     )
 
 
+def _state_at_time(
+    segments: Sequence[_DdsSegment], time_s: float, *, device_name: str
+) -> tuple[tuple[int, float, float], ...]:
+    elapsed = 0.0
+    for segment in segments:
+        end = elapsed + segment.duration_s
+        if elapsed <= time_s < end or np.isclose(time_s, elapsed, atol=1e-12):
+            return segment.state
+        elapsed = end
+    raise CommandAuditError(
+        f"{device_name} compiled DDS program does not cover t={time_s:g} s"
+    )
+
+
+def _audit_timed_dds_stages(
+    segments: Sequence[_DdsSegment],
+    stages: Sequence[Mapping[str, Any]],
+    *,
+    device_name: str,
+    imaging_channels: Sequence[int],
+) -> dict[str, Any]:
+    """Read compiled DDS state at science-stage midpoints.
+
+    Midpoints avoid the intentional one-microsecond command-update segments at
+    pulse boundaries.  The digital optical switches are checked independently
+    over each complete exposure and gap.
+    """
+    rows = []
+    for stage in stages:
+        midpoint = 0.5 * (float(stage["start_s"]) + float(stage["end_s"]))
+        state = _state_at_time(segments, midpoint, device_name=device_name)
+        state_rows = [
+            {
+                "channel": int(channel),
+                "frequency_hz": float(frequency),
+                "amplitude_command": float(amplitude),
+            }
+            for channel, frequency, amplitude in state
+        ]
+        rows.append({
+            "stage": str(stage["stage"]),
+            "stage_index": int(stage["stage_index"]),
+            "midpoint_s": float(midpoint),
+            "state": state_rows,
+            "state_sha256": _normalised_hash(state_rows),
+        })
+    by_kind: dict[str, set[str]] = {}
+    for row in rows:
+        by_kind.setdefault(row["stage"], set()).add(row["state_sha256"])
+    if any(len(values) != 1 for values in by_kind.values()):
+        raise CommandAuditError(
+            f"{device_name} DDS state changes between equivalent science stages"
+        )
+
+    imaging_verified: bool | None = None
+    if imaging_channels:
+        imaging_verified = True
+        for row in rows:
+            amplitude = {
+                int(item["channel"]): float(item["amplitude_command"])
+                for item in row["state"]
+            }
+            missing = sorted(set(imaging_channels) - set(amplitude))
+            if missing:
+                raise CommandAuditError(
+                    f"{device_name} lacks configured imaging DDS channels {missing}"
+                )
+            values = [amplitude[channel] for channel in imaging_channels]
+            if row["stage"] in ("exposure", "bright_wait"):
+                valid = all(value > 0.0 for value in values)
+            else:
+                valid = all(np.isclose(value, 0.0, atol=1e-15) for value in values)
+            if not valid:
+                raise CommandAuditError(
+                    f"{device_name} imaging-channel amplitudes contradict "
+                    f"the {row['stage']} command state: {values}"
+                )
+    state_signature = [
+        {
+            "stage": row["stage"],
+            "stage_index": row["stage_index"],
+            "state": row["state"],
+        }
+        for row in rows
+    ]
+    return {
+        "science_stage_states_verified": True,
+        "imaging_channel_state_verified": imaging_verified,
+        "imaging_channels": [int(value) for value in imaging_channels],
+        "state_by_stage": rows,
+        "state": state_signature,
+        "state_sha256": _normalised_hash(state_signature),
+        "state_variants_by_stage": {
+            key: sorted(values) for key, values in by_kind.items()
+        },
+    }
+
+
 def _match_dds_pattern(
     segments: Sequence[_DdsSegment],
     expected_durations_s: Sequence[float],
@@ -594,7 +712,22 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
             f"unsupported sequence type {spec.sequence_type!r}"
         )
     exposures = _exposure_schedule(h5, spec)
-    sweep_value_s = _sweep_value(h5, spec)
+    sweep_value_s = _sweep_value(h5, spec) if spec.sweep_global else 0.0
+    optimized = spec.sequence_type in {
+        "dark_lifetime", "bright_lifetime", "repeated_imaging"
+    }
+    declared_dark_gap_s: float | None = None
+    if optimized and len(exposures) > 1:
+        if not spec.dark_gap_global:
+            raise CommandAuditError("optimized sequence has no dark-gap global")
+        attrs = h5[spec.globals_group].attrs
+        if spec.dark_gap_global not in attrs:
+            raise CommandAuditError(
+                f"missing dark-gap global {spec.dark_gap_global!r}"
+            )
+        declared_dark_gap_s = float(attrs[spec.dark_gap_global])
+        if not np.isfinite(declared_dark_gap_s) or declared_dark_gap_s <= 0.0:
+            raise CommandAuditError("dark-gap global must be finite and positive")
     mapping = _connection_mapping(h5)
     trigger_bit, trigger_row = _digital_bit(mapping, CAMERA_TRIGGER_NAME)
     switch_info = [
@@ -665,6 +798,7 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
         for earlier, later in zip(trigger_windows, trigger_windows[1:])
     ]
     gap_levels: list[list[int]] = []
+    gap_command_overheads: list[float] = []
     for earlier, later in zip(trigger_windows, trigger_windows[1:]):
         levels = _levels_in_interval(
             segments,
@@ -673,7 +807,26 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
             later[0],
             tolerance_s=tolerance_s,
         )
-        if levels != {(1, 1)}:
+        if optimized:
+            assert declared_dark_gap_s is not None
+            dark_start = later[0] - declared_dark_gap_s
+            overhead = dark_start - earlier[1]
+            if not (-tolerance_s <= overhead <= 5e-6):
+                raise CommandAuditError(
+                    "camera gap does not equal declared dark hold plus bounded "
+                    "command-update overhead"
+                )
+            dark_levels = _levels_in_interval(
+                segments, switch_bits, dark_start, later[0],
+                tolerance_s=tolerance_s,
+            )
+            if dark_levels != {(1, 1)}:
+                raise CommandAuditError(
+                    "science switches are not both high throughout the declared "
+                    f"dark interval: {sorted(dark_levels)}"
+                )
+            gap_command_overheads.append(float(overhead))
+        elif levels != {(1, 1)}:
             raise CommandAuditError(
                 "science switches are not both high during an inter-frame gap: "
                 f"{sorted(levels)}"
@@ -700,7 +853,7 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
             "could not identify one joint switch-low interval at first exposure"
         )
     pre_first_low_s = first_trigger_start - switch_low_windows[0][0]
-    if spec.sequence_type == "bright_wait":
+    if spec.sequence_type in ("bright_wait", "bright_lifetime"):
         wait_start = first_trigger_start - sweep_value_s
         levels = _levels_in_interval(
             segments,
@@ -713,25 +866,63 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
             raise CommandAuditError(
                 "science switches are not both low throughout the bright wait"
             )
-        if not np.isclose(
-            pre_first_low_s, sweep_value_s, rtol=0.0, atol=tolerance_s
-        ):
+        # The optimized sequence turns the switches on, waits the requested
+        # duration, and then spends one microsecond updating DDS amplitudes
+        # before the camera trigger.  Treat that explicitly as command
+        # overhead rather than changing the physical bright-wait global.
+        bright_wait_command_overhead_s = pre_first_low_s - sweep_value_s
+        if not (-tolerance_s <= bright_wait_command_overhead_s <= 5e-6):
             raise CommandAuditError(
                 "compiled switch-low lead does not match the raw bright-wait "
-                "global"
+                "global plus bounded DDS-update overhead"
             )
 
-    expected_dds_pattern = _duration_pattern(
-        spec.sequence_type, exposures, sweep_value_s
+    expected_dds_pattern = (
+        None if optimized else
+        _duration_pattern(spec.sequence_type, exposures, sweep_value_s)
     )
+    dds_stages: list[dict[str, Any]] = []
+    if spec.sequence_type == "bright_lifetime":
+        dds_stages.append({
+            "stage": "bright_wait", "stage_index": 0,
+            "start_s": float(exposures[0]["start_s"]) - sweep_value_s,
+            "end_s": float(exposures[0]["start_s"]),
+        })
+    for index, exposure in enumerate(exposures):
+        dds_stages.append({
+            "stage": "exposure", "stage_index": index,
+            "start_s": float(exposure["start_s"]),
+            "end_s": float(exposure["end_s"]),
+        })
+        if index + 1 < len(exposures):
+            dds_stages.append({
+                "stage": "dark_gap", "stage_index": index,
+                "start_s": (
+                    float(exposures[index + 1]["start_s"]) - declared_dark_gap_s
+                    if declared_dark_gap_s is not None
+                    else float(exposure["end_s"])
+                ),
+                "end_s": float(exposures[index + 1]["start_s"]),
+            })
     dds: dict[str, Any] = {}
     for device_name in DDS_DEVICE_NAMES:
         dds_segments, program_hash = _parse_dds_program(h5, device_name)
-        matched = _match_dds_pattern(
-            dds_segments,
-            expected_dds_pattern,
-            device_name=device_name,
-        )
+        if optimized:
+            channels = (
+                spec.imaging_dds_channels
+                if device_name == spec.imaging_dds_device else ()
+            )
+            matched = _audit_timed_dds_stages(
+                dds_segments, dds_stages,
+                device_name=device_name, imaging_channels=channels,
+            )
+        else:
+            assert expected_dds_pattern is not None
+            matched = _match_dds_pattern(
+                dds_segments,
+                expected_dds_pattern,
+                device_name=device_name,
+            )
         matched["raw_program_sha256"] = program_hash
         dds[device_name] = matched
 
@@ -773,7 +964,9 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
             "during_exposure": [0, 0],
             "during_interframe_gap": [1, 1],
             "during_bright_wait": (
-                [0, 0] if spec.sequence_type == "bright_wait" else None
+                [0, 0]
+                if spec.sequence_type in ("bright_wait", "bright_lifetime")
+                else None
             ),
             "interpretation": (
                 "The compiled outputs are non-inverted. Low coincides with "
@@ -781,13 +974,21 @@ def audit_compiled_commands(h5: Any, spec: CommandAuditSpec) -> dict[str, Any]:
                 "commanded on; high is termed commanded off."
             ),
             "pre_first_exposure_low_s": float(pre_first_low_s),
+            "bright_wait_command_overhead_s": (
+                float(pre_first_low_s - sweep_value_s)
+                if spec.sequence_type in ("bright_wait", "bright_lifetime")
+                else None
+            ),
             "compiled_interframe_gap_s": [
                 float(value) for value in compiled_gaps
             ],
+            "declared_dark_gap_s": declared_dark_gap_s,
+            "gap_command_overhead_s": gap_command_overheads,
             "gap_levels": gap_levels,
         },
         "switch_states_verified": True,
-        "dds_frequency_amplitude_constant": True,
+        "dds_frequency_amplitude_constant": not optimized,
+        "dds_science_stage_states_verified": True,
         "dds": dds,
         "embedded_sequence": source,
     }
@@ -864,6 +1065,7 @@ def summarize_command_audits(
             and len(passes) == len(records)
             and all(
                 record.get("dds_frequency_amplitude_constant")
+                or record.get("dds_science_stage_states_verified")
                 for record in passes
             )
         ),

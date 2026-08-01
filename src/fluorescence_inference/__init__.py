@@ -24,6 +24,8 @@ from .schema import (  # noqa: F401
     V3_ADDITIONAL_COLUMNS,
     V3_PRIMARY_KEY,
     V3_SCHEMA_VERSION,
+    V4_ADDITIONAL_COLUMNS,
+    V4_SCHEMA_VERSION,
 )
 
 __all__ = [
@@ -34,5 +36,7 @@ __all__ = [
     "V3_ADDITIONAL_COLUMNS",
     "V3_PRIMARY_KEY",
     "V3_SCHEMA_VERSION",
+    "V4_ADDITIONAL_COLUMNS",
+    "V4_SCHEMA_VERSION",
     "__version__",
 ]

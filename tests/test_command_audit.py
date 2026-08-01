@@ -206,6 +206,154 @@ def sequence():
     )
 
 
+def _write_optimized_shot(
+    path: Path,
+    *,
+    sequence_type: str,
+    exposure_s: float = 0.05,
+    dark_gap_s: float = 0.01,
+    sweep_value_s: float = 0.1,
+    corrupt_dark_dds: bool = False,
+) -> CommandAuditSpec:
+    if sequence_type == "bright_lifetime":
+        frame_names = ("fluor", "fluor2")
+        lead = sweep_value_s + 0.000001
+        timeline = [
+            (lead, _word(0, 0, 0), "bright"),
+            (exposure_s, _word(0, 0, 1), "bright"),
+            (dark_gap_s + 0.000002, _word(1, 1, 0), "dark"),
+            (exposure_s, _word(0, 0, 1), "bright"),
+        ]
+        starts = [lead, lead + exposure_s + dark_gap_s + 0.000002]
+        sweep_global = "WAIT_BEFORE_FIRST_FLUOR"
+    elif sequence_type in {"dark_lifetime", "repeated_imaging"}:
+        frame_names = tuple(f"fluor{index + 1}" for index in range(5))
+        timeline = [(0.01, _word(0, 0, 0), "bright")]
+        starts = []
+        elapsed = 0.01
+        for index in range(5):
+            starts.append(elapsed)
+            timeline.append((exposure_s, _word(0, 0, 1), "bright"))
+            elapsed += exposure_s
+            if index < 4:
+                timeline.append(
+                    (dark_gap_s + 0.000002, _word(1, 1, 0), "dark")
+                )
+                elapsed += dark_gap_s + 0.000002
+        sweep_global = (
+            "SECOND_HAMAMATSU_FLUOR_DELAY"
+            if sequence_type == "dark_lifetime" else ""
+        )
+    else:
+        raise ValueError(sequence_type)
+
+    with h5py.File(path, "w") as h5:
+        globals_group = h5.create_group("globals")
+        globals_group.attrs["SECOND_HAMAMATSU_FLUOR_DELAY"] = dark_gap_s
+        if sweep_global == "WAIT_BEFORE_FIRST_FLUOR":
+            globals_group.attrs[sweep_global] = sweep_value_s
+
+        connection_dtype = np.dtype(
+            [
+                ("name", "S64"),
+                ("class", "S32"),
+                ("parent", "S64"),
+                ("parent port", "S16"),
+                ("properties", "S128"),
+            ]
+        )
+        connection = np.zeros(3, dtype=connection_dtype)
+        properties = b'Content-Type: application/json {"inverted": false}'
+        for index, (name, cls, port) in enumerate(
+            (
+                ("do_sci_img_light", "DigitalOut", "do1"),
+                ("do_sci_img_light2", "DigitalOut", "do2"),
+                ("hamamatsu_trigger", "Trigger", "do3"),
+            )
+        ):
+            connection[index] = (
+                name.encode(), cls.encode(), b"prawn_do_0__pod", port.encode(),
+                properties,
+            )
+        h5.create_dataset("connection table", data=connection)
+
+        digital = h5.create_group("devices/prawn_do_0")
+        digital.attrs["clock_frequency"] = 1_000_000.0
+        program_dtype = np.dtype([("bit_sets", "<u2"), ("reps", "<u4")])
+        digital.create_dataset(
+            "pulse_program",
+            data=np.asarray(
+                [
+                    (word, int(round(duration * 1_000_000)))
+                    for duration, word, _stage in timeline
+                ]
+                + [(0, 0)],
+                dtype=program_dtype,
+            ),
+        )
+
+        exposure_dtype = np.dtype(
+            [
+                ("t", "<f8"),
+                ("name", "S16"),
+                ("frametype", "S16"),
+                ("trigger_duration", "<f8"),
+            ]
+        )
+        exposures = np.asarray(
+            [
+                (start, name.encode(), b"atoms", exposure_s)
+                for start, name in zip(starts, frame_names)
+            ],
+            dtype=exposure_dtype,
+        )
+        h5.create_group("devices/hamamatsu").create_dataset(
+            "EXPOSURES", data=exposures
+        )
+
+        string_dtype = h5py.string_dtype("utf-8")
+        for device_name in ("dds_0", "dds_1"):
+            commands = ["debug off", "setchannels 4"]
+            for segment_index, (duration, _word_value, stage) in enumerate(timeline):
+                for channel in range(4):
+                    amplitude = 0.2
+                    if device_name == "dds_1" and channel in {0, 2}:
+                        amplitude = 0.5 if stage == "bright" else 0.0
+                        if corrupt_dark_dds and stage == "dark":
+                            amplitude = 0.1
+                    commands.append(
+                        f"set {channel} {segment_index} "
+                        f"{80_000_000 - channel * 1_000_000} "
+                        f"{amplitude} 0 {duration}"
+                    )
+            commands.extend([f"set 4 {len(timeline)}", "hwstart"])
+            h5.create_group(f"devices/{device_name}").create_dataset(
+                "RAW_PROGRAMS",
+                data=np.asarray(commands, dtype=object),
+                dtype=string_dtype,
+            )
+
+        source = """
+def sequence():
+    do_sci_img_light.go_low(t)
+    do_sci_img_light2.go_low(t)
+    hamamatsu.expose(t)
+    do_sci_img_light.go_high(t)
+    do_sci_img_light2.go_high(t)
+"""
+        h5.create_dataset("script", data=source, dtype=string_dtype)
+
+    return CommandAuditSpec(
+        sequence_type=sequence_type,
+        frame_names=frame_names,
+        sweep_global=sweep_global,
+        expected_exposure_s=exposure_s,
+        imaging_dds_device="dds_1",
+        imaging_dds_channels=(0, 2),
+        dark_gap_global="SECOND_HAMAMATSU_FLUOR_DELAY",
+    )
+
+
 @pytest.mark.parametrize("sequence_type", ["switch_off_hold", "bright_wait"])
 def test_compiled_command_audit_recovers_timing_switch_and_dds(
     scratch: Path, sequence_type: str
@@ -268,6 +416,53 @@ def test_compiled_command_audit_rejects_trigger_edge_disagreement(
     )
     with h5py.File(path, "r") as h5:
         with pytest.raises(CommandAuditError, match="trigger edges disagree"):
+            audit_compiled_commands(h5, spec)
+
+
+@pytest.mark.parametrize(
+    ("sequence_type", "exposure_s"),
+    [
+        ("bright_lifetime", 0.05),
+        ("dark_lifetime", 0.05),
+        ("repeated_imaging", 0.20),
+    ],
+)
+def test_optimized_command_audit_verifies_timed_dds_states(
+    scratch: Path, sequence_type: str, exposure_s: float
+) -> None:
+    path = scratch / f"optimized_{sequence_type}.h5"
+    spec = _write_optimized_shot(
+        path, sequence_type=sequence_type, exposure_s=exposure_s
+    )
+
+    with h5py.File(path, "r") as h5:
+        result = audit_compiled_commands(h5, spec)
+
+    assert result["passed"]
+    assert result["dds_science_stage_states_verified"]
+    assert result["science_switch_levels"]["declared_dark_gap_s"] == (
+        pytest.approx(0.01)
+    )
+    assert result["science_switch_levels"]["gap_command_overhead_s"] == (
+        pytest.approx([0.000002] * (len(spec.frame_names) - 1))
+    )
+    imaging = result["dds"]["dds_1"]
+    assert imaging["imaging_channel_state_verified"]
+    assert imaging["imaging_channels"] == [0, 2]
+
+
+def test_optimized_command_audit_rejects_imaging_dds_during_dark_gap(
+    scratch: Path,
+) -> None:
+    path = scratch / "optimized_dark_dds_bad.h5"
+    spec = _write_optimized_shot(
+        path,
+        sequence_type="repeated_imaging",
+        corrupt_dark_dds=True,
+    )
+
+    with h5py.File(path, "r") as h5:
+        with pytest.raises(CommandAuditError, match="dark_gap command state"):
             audit_compiled_commands(h5, spec)
 
 

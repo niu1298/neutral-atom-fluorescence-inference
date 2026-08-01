@@ -17,6 +17,8 @@ SPLIT_NAMES = ("train", "validation", "test")
 CHRONOLOGICAL_STRATEGY = "chronological_cycle_60_20_20"
 SEEDED_STRATEGY = "seeded_cycle_60_20_20"
 SUPPORTED_STRATEGIES = (CHRONOLOGICAL_STRATEGY, SEEDED_STRATEGY)
+CHRONOLOGICAL_SHOT_STRATEGY = "chronological_shot_60_20_20"
+SEEDED_BLOCK_STRATEGY = "seeded_contiguous_block_60_20_20"
 
 
 def build_cycle_split_manifest(
@@ -176,3 +178,78 @@ def attach_split(rows: pd.DataFrame, manifest: pd.DataFrame) -> pd.DataFrame:
         )
         raise ValueError(f"rows contain shots absent from split manifest: {missing}")
     return out
+
+
+def build_shot_split_manifest(
+    shots: pd.DataFrame,
+    *,
+    strategy: str = CHRONOLOGICAL_SHOT_STRATEGY,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Assign complete fixed-condition shots to deterministic 60/20/20 splits.
+
+    The primary strategy is chronological.  The sensitivity strategy first
+    partitions acquisition order into five contiguous blocks and then applies
+    a seeded permutation to those blocks.  In both cases a shot remains the
+    indivisible unit and every one of its frames/sites receives one split.
+    """
+    required = {"shot_id", "shot_order", "condition_id"}
+    missing = sorted(required - set(shots.columns))
+    if missing:
+        raise ValueError(f"shot design is missing columns: {missing}")
+    if strategy not in (CHRONOLOGICAL_SHOT_STRATEGY, SEEDED_BLOCK_STRATEGY):
+        raise ValueError(
+            f"unsupported fixed-condition strategy {strategy!r}; expected "
+            f"{(CHRONOLOGICAL_SHOT_STRATEGY, SEEDED_BLOCK_STRATEGY)}"
+        )
+    manifest = shots.sort_values("shot_order", kind="stable").reset_index(drop=True).copy()
+    if manifest["shot_id"].duplicated().any():
+        raise ValueError("shot design must have exactly one row per shot_id")
+    n_shot = len(manifest)
+    if n_shot < 5:
+        raise ValueError("at least five complete shots are required for a 60/20/20 split")
+
+    # Five contiguous blocks make the alternate split drift-aware while
+    # retaining deterministic 60/20/20 sizes for the 100-shot optimized runs.
+    block_index = np.floor(np.arange(n_shot) * 5 / n_shot).astype(int)
+    block_order = np.arange(5, dtype=int)
+    if strategy == SEEDED_BLOCK_STRATEGY:
+        block_order = np.random.default_rng(seed).permutation(block_order)
+    assignment = {
+        int(block_order[0]): "train",
+        int(block_order[1]): "train",
+        int(block_order[2]): "train",
+        int(block_order[3]): "validation",
+        int(block_order[4]): "test",
+    }
+    manifest["split_block_index"] = block_index
+    manifest["split"] = pd.Series(block_index).map(assignment).astype("string")
+    if manifest["split"].isna().any():
+        raise RuntimeError("fixed-condition split left a shot unassigned")
+
+    public_columns = [
+        c for c in (
+            "shot_id", "shot_order", "condition_id", "sweep_value_s",
+            "repetition_index", "cycle_index", "split_block_index", "split",
+        ) if c in manifest.columns
+    ]
+    manifest = manifest[public_columns]
+    records = manifest.to_dict(orient="records")
+    digest = hashlib.sha256(json.dumps(
+        records, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")).hexdigest()
+    counts = manifest["split"].value_counts().reindex(SPLIT_NAMES, fill_value=0)
+    metadata: dict[str, Any] = {
+        "strategy": strategy,
+        "seed": int(seed) if strategy == SEEDED_BLOCK_STRATEGY else None,
+        "unit": "complete_shot",
+        "sensitivity_blocks": (
+            "five contiguous acquisition-order blocks"
+            if strategy == SEEDED_BLOCK_STRATEGY else None
+        ),
+        "fractions_target": {"train": 0.6, "validation": 0.2, "test": 0.2},
+        "n_shots": n_shot,
+        "shots_per_split": {name: int(counts[name]) for name in SPLIT_NAMES},
+        "manifest_sha256": digest,
+    }
+    return manifest, metadata

@@ -6,9 +6,12 @@ import pytest
 
 from fluorescence_inference.splits import (
     CHRONOLOGICAL_STRATEGY,
+    CHRONOLOGICAL_SHOT_STRATEGY,
+    SEEDED_BLOCK_STRATEGY,
     SEEDED_STRATEGY,
     attach_split,
     build_cycle_split_manifest,
+    build_shot_split_manifest,
 )
 
 
@@ -151,3 +154,46 @@ def test_incomplete_or_duplicate_cycles_are_rejected():
     duplicate = pd.concat([_design(), _design().iloc[[0]]], ignore_index=True)
     with pytest.raises(ValueError, match="exactly one row"):
         build_cycle_split_manifest(duplicate)
+
+
+def _fixed_design(n_shots: int = 100) -> pd.DataFrame:
+    return pd.DataFrame({
+        "shot_id": range(n_shots),
+        "shot_order": range(n_shots),
+        "condition_id": ["fixed_exposure"] * n_shots,
+        "sweep_value_s": [float("nan")] * n_shots,
+        "repetition_index": range(n_shots),
+        "cycle_index": range(n_shots),
+    })
+
+
+def test_fixed_condition_shot_split_is_exact_and_complete():
+    manifest, meta = build_shot_split_manifest(_fixed_design())
+
+    assert meta["strategy"] == CHRONOLOGICAL_SHOT_STRATEGY
+    assert meta["unit"] == "complete_shot"
+    assert meta["shots_per_split"] == {
+        "train": 60, "validation": 20, "test": 20,
+    }
+    assert manifest.loc[manifest["shot_order"] < 60, "split"].eq("train").all()
+    assert manifest.loc[
+        manifest["shot_order"].between(60, 79), "split"
+    ].eq("validation").all()
+    assert manifest.loc[manifest["shot_order"] >= 80, "split"].eq("test").all()
+
+
+def test_fixed_condition_seeded_block_sensitivity_is_deterministic():
+    first, first_meta = build_shot_split_manifest(
+        _fixed_design(), strategy=SEEDED_BLOCK_STRATEGY, seed=20260731
+    )
+    second, second_meta = build_shot_split_manifest(
+        _fixed_design(), strategy=SEEDED_BLOCK_STRATEGY, seed=20260731
+    )
+
+    pd.testing.assert_frame_equal(first, second)
+    assert first_meta == second_meta
+    assert first_meta["shots_per_split"] == {
+        "train": 60, "validation": 20, "test": 20,
+    }
+    per_block = first.groupby("split_block_index", observed=True)["split"].nunique()
+    assert per_block.eq(1).all()

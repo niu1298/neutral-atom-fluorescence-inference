@@ -9,6 +9,7 @@ from fluorescence_inference.sweep_validation import (
     geometry_match_with_lattice_registration,
     geometry_match_report,
     lattice_step_explanation,
+    linear_slope,
     refine_rigid_lattice_center,
     select_background_method,
     summarize_background_methods,
@@ -100,6 +101,16 @@ def test_background_summary_uses_unique_shot_frames():
         "median_block_median_std"
     ] == 1.0
     assert summary["annulus_contaminated"]["eligible_as_primary"] is False
+
+
+def test_fixed_condition_nullable_sweep_is_ignored_by_drift_diagnostic():
+    slope = linear_slope(
+        pd.Series([pd.NA, pd.NA, pd.NA], dtype="Float64"),
+        pd.Series([1.0, 2.0, 3.0]),
+    )
+
+    assert slope["n"] == 0
+    assert np.isnan(slope["slope"])
 
 
 def test_background_selection_ignores_separation_and_rejects_annulus():

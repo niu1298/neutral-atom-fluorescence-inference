@@ -15,6 +15,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -36,6 +37,8 @@ def _shot_manifest(df):
         "split",
         "condition_id",
         "sweep_value_s",
+        "bright_wait_s",
+        "exposure_s",
         "cycle_index",
         "repetition_index",
     ]
@@ -64,9 +67,13 @@ def _overlay(cfg, ctx: dict[str, Any], out: Path) -> Path:
         draw_roi_boxes(ax, site_map.boxes, color="#57d0ff", lw=0.45)
         ax.set_xlim(max(0, x0 - pad), min(img.shape[1], x1 + pad))
         ax.set_ylim(min(img.shape[0], y1 + pad), max(0, y0 - pad))
+        sweep_value = shot.get("sweep_value_s")
+        if pd.notna(sweep_value):
+            timing_label = f"sweep {float(sweep_value):.3g} s"
+        else:
+            timing_label = f"exposure {1e3 * float(shot['exposure_s']):.0f} ms"
         ax.set_title(
-            f"shot {int(shot['shot_order'])} · {float(shot['sweep_value_s']):.1f} s",
-            fontsize=9,
+            f"shot {int(shot['shot_order'])} · {timing_label}", fontsize=9
         )
         ax.set_xlabel("camera x (px)")
     axes[0].set_ylabel("camera y (px)")
@@ -122,6 +129,8 @@ def main() -> int:
         report["overlay_file"] = overlay.name
         reports[cfg.dataset_id] = report
         contexts[cfg.dataset_id] = ctx
+        checkpoint = default_dir / f"{cfg.dataset_id}_geometry_validation.json"
+        checkpoint.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     cross_run = None
     if len(configs) == 2:

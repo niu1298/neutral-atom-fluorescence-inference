@@ -26,7 +26,8 @@ SCHEMA_VERSION = "2.0"
 # config.  Keeping the V0 constant here is intentional: old commands and
 # sidecars must not silently change meaning.
 V3_SCHEMA_VERSION = "3.0"
-SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION, V3_SCHEMA_VERSION)
+V4_SCHEMA_VERSION = "4.0"
+SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION, V3_SCHEMA_VERSION, V4_SCHEMA_VERSION)
 
 #: v1 column -> v2 column, for reading an older table.
 V1_TO_V2 = {
@@ -196,6 +197,21 @@ V3_REQUIRED_COLUMNS = {
 
 V3_PRIMARY_KEY = ("dataset_id", "run_id", "shot_id", "frame_id", "site_id")
 
+# Schema 4.0 is additive.  It gives five-frame prefix analyses explicit
+# cumulative timing without changing any schema-2.0 or schema-3.0 meaning.
+V4_ADDITIONAL_COLUMNS: dict[str, tuple[str, bool, str]] = {
+    "bright_wait_s": ("Float64", True,
+                      "Commanded bright wait preceding the first exposure."),
+    "cumulative_bright_s": ("Float64", False,
+                            "Sum of fluorescence exposure durations through this frame."),
+    "cumulative_dark_s": ("Float64", False,
+                          "Sum of declared switch-off holds preceding this frame."),
+    "pulse_count": ("Int8", False,
+                    "Number of fluorescence pulses in the sequence prefix through this frame."),
+}
+V4_ALL_COLUMNS = {**V3_ALL_COLUMNS, **V4_ADDITIONAL_COLUMNS}
+V4_REQUIRED_COLUMNS = {**V3_REQUIRED_COLUMNS, **V4_ADDITIONAL_COLUMNS}
+
 #: quality flags this pipeline can raise
 QUALITY_FLAGS = (
     "ok",
@@ -238,6 +254,8 @@ def columns_for_version(version: str = SCHEMA_VERSION
         return V2_ALL_COLUMNS
     if version == V3_SCHEMA_VERSION:
         return V3_ALL_COLUMNS
+    if version == V4_SCHEMA_VERSION:
+        return V4_ALL_COLUMNS
     raise ValueError(
         f"unsupported schema version {version!r}; expected one of "
         f"{SUPPORTED_SCHEMA_VERSIONS}"
@@ -367,7 +385,11 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
     stats: dict[str, Any] = {}
 
     columns = columns_for_version(version)
-    required = FRAME_SITE_COLUMNS if version == SCHEMA_VERSION else V3_REQUIRED_COLUMNS
+    required = (
+        FRAME_SITE_COLUMNS if version == SCHEMA_VERSION
+        else V4_REQUIRED_COLUMNS if version == V4_SCHEMA_VERSION
+        else V3_REQUIRED_COLUMNS
+    )
     key = primary_key_for_version(version)
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -398,7 +420,7 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
     stats.update(n_shots=int(len(shots)), n_sites=int(len(sites)),
                  frame_ids=[int(f) for f in frames], n_rows=int(len(df)))
     run_frame_counts: pd.Series | None = None
-    if version == V3_SCHEMA_VERSION:
+    if version in (V3_SCHEMA_VERSION, V4_SCHEMA_VERSION):
         run_frame_ids = (
             df[["dataset_id", "run_id", "frame_id"]]
             .drop_duplicates()
@@ -522,7 +544,7 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
         if len(ex) > 1:
             warnings.append(f"more than one exposure value present: {sorted(ex)}")
 
-    if version == V3_SCHEMA_VERSION:
+    if version in (V3_SCHEMA_VERSION, V4_SCHEMA_VERSION):
         allowed_splits = {"train", "validation", "test", "unassigned"}
         seen_splits = set(df["split"].dropna().astype(str))
         unknown_splits = sorted(seen_splits - allowed_splits)
@@ -550,5 +572,31 @@ def validate(df: pd.DataFrame, *, expected_frames: int | None = None,
             shot_key, observed=True)["condition_id"].nunique()
         if (condition_per_shot != 1).any():
             errors.append("a shot maps to more than one condition")
+
+    if version == V4_SCHEMA_VERSION:
+        timing = (
+            df[["dataset_id", "run_id", "shot_id", "frame_index", "exposure_s",
+                "dark_hold_s", "cumulative_bright_s", "cumulative_dark_s",
+                "pulse_count"]]
+            .drop_duplicates()
+            .sort_values(["dataset_id", "run_id", "shot_id", "frame_index"], kind="stable")
+        )
+        for _key, block in timing.groupby(
+            ["dataset_id", "run_id", "shot_id"], observed=True, sort=False
+        ):
+            exposure = block["exposure_s"].astype(float).to_numpy()
+            dark_holds = block["dark_hold_s"].astype(float).fillna(0.0).to_numpy()
+            if not np.allclose(block["cumulative_bright_s"].astype(float), np.cumsum(exposure)):
+                errors.append("cumulative_bright_s does not equal prefix exposure time")
+                break
+            if not np.allclose(
+                block["cumulative_dark_s"].astype(float), np.cumsum(dark_holds)
+            ):
+                errors.append("cumulative_dark_s does not equal prefix declared dark holds")
+                break
+            expected_pulses = np.arange(1, len(block) + 1)
+            if not np.array_equal(block["pulse_count"].astype(int), expected_pulses):
+                errors.append("pulse_count is not the one-based frame prefix index")
+                break
 
     return ValidationReport(not errors, len(df), errors, warnings, stats)
