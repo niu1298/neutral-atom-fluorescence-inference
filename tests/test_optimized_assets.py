@@ -15,6 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import generate_optimized_assets as assets  # noqa: E402
+import audit_optimized_emission_fit as emission_audit  # noqa: E402
+
+from fluorescence_inference.heldout_emissions import (  # noqa: E402
+    EmissionModel,
+    GaussianComponents,
+)
+from fluorescence_inference.optimized_analysis import (  # noqa: E402
+    _public_emission_distribution,
+)
 
 
 def _curve(time_key: str):
@@ -117,6 +126,155 @@ def _contrast_ratio(foreground: str, background: str, alpha: float) -> float:
 def test_histogram_fill_has_visible_panel_contrast():
     assert _contrast_ratio(assets.HIST_FILL, "#ffffff", assets.HIST_ALPHA) >= 3.0
     assert assets.HIST_EDGE.lower() != "#ffffff"
+
+
+def test_emission_plot_labels_and_total_density_are_explicit():
+    assert assets.EMISSION_X_LABEL == "emission-adjusted count"
+    assert assets.EMISSION_CAPTION == (
+        "Background-corrected counts after frozen frame and site offsets."
+    )
+    assert assets.OVERLAP_LABEL == "equal-prior Gaussian overlap"
+    distribution = _result()["repeated_imaging"]["emission_models_by_exposure"][
+        "100ms"
+    ]["public_heldout_distribution"]
+    total = assets._total_emission_density(distribution)
+    np.testing.assert_array_equal(
+        total,
+        np.asarray(distribution["model_empty_density"])
+        + np.asarray(distribution["model_occupied_density"]),
+    )
+
+
+def _offset_model() -> EmissionModel:
+    components = GaussianComponents(
+        weight_empty=0.47,
+        mean_empty=-2.0,
+        sigma_empty=0.8,
+        weight_occupied=0.53,
+        mean_occupied=3.5,
+        sigma_occupied=1.1,
+        log_likelihood=-1.0,
+        n_fit=100,
+        converged=True,
+    )
+    return EmissionModel(
+        name="frozen_offsets",
+        kind="site_shrinkage",
+        value_col="count",
+        frame_col="frame_index",
+        site_col="site_id",
+        shot_cols=("run_id", "shot_id"),
+        components=components,
+        n_train_rows=100,
+        training_shot_keys=(),
+        frame_offsets={0: 1.5, 1: -0.75, 2: 0.0, 3: 0.0, 4: 0.0},
+        site_offsets={0: 0.4, 1: -0.2},
+    )
+
+
+def _offset_table() -> pd.DataFrame:
+    adjusted = np.r_[np.linspace(-4.0, 0.5, 1000), np.linspace(1.0, 6.5, 1000)]
+    frame = np.arange(len(adjusted)) % 2
+    site = (np.arange(len(adjusted)) // 2) % 2
+    frame_offset = np.where(frame == 0, 1.5, -0.75)
+    site_offset = np.where(site == 0, 0.4, -0.2)
+    return pd.DataFrame(
+        {
+            "run_id": "synthetic",
+            "shot_id": np.arange(len(adjusted)) // 100,
+            "split": "test",
+            "frame_index": frame,
+            "site_id": site,
+            "count": adjusted + frame_offset + site_offset,
+            "expected_adjusted": adjusted,
+        }
+    )
+
+
+def test_public_emission_distribution_uses_once_adjusted_normalized_coordinate():
+    model = _offset_model()
+    table = _offset_table()
+    scored = model.score(table)
+    np.testing.assert_allclose(
+        scored["count_adjusted_for_emission"],
+        table["expected_adjusted"],
+        rtol=0.0,
+        atol=2e-15,
+    )
+    public = _public_emission_distribution(
+        {"selected_model": model, "scored": scored}
+    )
+    centers = np.asarray(public["bin_centers"])
+    width = float(centers[1] - centers[0])
+    empirical = np.asarray(public["heldout_density"])
+    empty = np.asarray(public["model_empty_density"])
+    occupied = np.asarray(public["model_occupied_density"])
+    assert np.sum(empirical) * width == pytest.approx(1.0, abs=1e-12)
+    np.testing.assert_allclose(
+        empty + occupied,
+        np.exp(model.components.log_density(centers)),
+        rtol=1e-13,
+        atol=1e-15,
+    )
+    assert 0.98 < np.sum((empty + occupied) * width) <= 1.0
+
+
+def test_complete_shot_bands_preserve_all_sites_and_frames_and_are_deterministic():
+    rows = []
+    for shot in range(4):
+        for frame in range(2):
+            for site in range(3):
+                rows.append(
+                    {
+                        "run_id": "run",
+                        "shot_id": shot,
+                        "frame_index": frame,
+                        "site_id": site,
+                        "count_adjusted_for_emission": shot + 0.2 * frame + 0.01 * site,
+                    }
+                )
+    table = pd.DataFrame(rows)
+    scopes = {
+        "all": np.ones(len(table), dtype=bool),
+        "frame_0": table["frame_index"].to_numpy() == 0,
+        "frame_1": table["frame_index"].to_numpy() == 1,
+    }
+    edges = np.linspace(-0.5, 4.0, 19)
+    first = emission_audit.complete_shot_density_bands(
+        table, edges, scopes=scopes, n_boot=40, seed=72
+    )
+    second = emission_audit.complete_shot_density_bands(
+        table, edges, scopes=scopes, n_boot=40, seed=72
+    )
+    np.testing.assert_array_equal(first.draw_indices, second.draw_indices)
+    assert first.rows_per_shot["all"] == (6, 6, 6, 6)
+    assert first.rows_per_shot["frame_0"] == (3, 3, 3, 3)
+    assert first.rows_per_shot["frame_1"] == (3, 3, 3, 3)
+    for scope in scopes:
+        np.testing.assert_array_equal(first.lower[scope], second.lower[scope])
+        np.testing.assert_array_equal(first.median[scope], second.median[scope])
+        np.testing.assert_array_equal(first.upper[scope], second.upper[scope])
+
+
+def test_emission_audit_figure_is_deterministic(tmp_path):
+    model = _offset_model()
+    table = _offset_table().copy()
+    table["shot_id"] = np.arange(len(table)) // 100
+    table["frame_index"] = np.arange(len(table)) % 5
+    scored = model.score(table)
+    values = scored["count_adjusted_for_emission"].to_numpy(float)
+    edges = np.linspace(*np.quantile(values, emission_audit.DISPLAY_QUANTILES), 61)
+    scopes = emission_audit._scope_masks(scored)
+    bands = emission_audit.complete_shot_density_bands(
+        scored, edges, scopes=scopes, n_boot=20, seed=91
+    )
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    emission_audit._plot_exposure("synthetic", scored, edges, bands, model, first)
+    emission_audit._plot_exposure("synthetic", scored, edges, bands, model, second)
+    assert hashlib.sha256(first.read_bytes()).hexdigest() == hashlib.sha256(
+        second.read_bytes()
+    ).hexdigest()
 
 
 def _story() -> assets.OccupancyStoryData:

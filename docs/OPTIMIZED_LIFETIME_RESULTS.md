@@ -39,6 +39,36 @@ a 5% threshold; the largest nearest-component residual beyond four standard
 deviations is 0.05% against a 2% threshold. A third state and heavy-tail model
 are therefore not fitted to test data.
 
+A focused held-out posterior-predictive audit classifies the remaining density
+mismatch as **B: mild misspecification, scientific results stable**. The public
+histogram uses the same emission-adjusted coordinate as the frozen Gaussian
+components: background-corrected counts after the training-fitted frame and
+site offsets. Reconstructing that coordinate and the validation ranking gives
+zero numerical discrepancy; component weights sum to one and empty plus
+occupied density equals the scored predictive density to floating-point
+precision. The displayed empirical density integrates to 1.000. The summed
+frozen density integrates to 0.9950, 0.9971, and 0.9927 over the clipped 50,
+100, and 200 ms display ranges; the omitted mass is the disclosed 0.25% tail
+at each end, not an extra normalization.
+
+Across exposures, integrated absolute density error is 0.159, 0.150, and
+0.114, while Jensen-Shannon divergence is 0.0048, 0.0045, and 0.0035 nats.
+Complete-shot bands show localized residuals near the two component modes and
+their slopes, rather than a missing dominant state. Posterior-partitioned
+empirical widths are within about 6% of the frozen component widths. The mode
+offset is mildly negative overall, and the 0.25th–99.75th percentile display
+clipping moves the empirical mode by less than one bin. These partitions are
+model-conditioned diagnostics, not labelled empty/occupied truth.
+
+The audit resamples all sites and frames within each of 20 complete test shots
+(400 replicates) and also checks frame index, early/late shots, ordered site
+quartiles, and exposure. Eligible frozen candidates change mean held-out
+posterior occupancy by at most about two percentage points. Already-reported
+emission sensitivities keep the dark and bright lifetimes within their stated
+robustness ranges, and every repeated-imaging background sensitivity still
+selects the continuous-only model. The lifetime and no-material-pulse-term
+conclusions are therefore unchanged; no test-data refit is used.
+
 ## Dark lifetime
 
 Validation selects the shared-rate model. The common dark hazard and its

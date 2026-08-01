@@ -59,6 +59,10 @@ HIST_FILL = "#66727f"
 HIST_EDGE = "#3d4650"
 HIST_ALPHA = 0.82
 CORRECTED_HIST_EDGE = "#1f4d70"
+TOTAL_MODEL_COLOR = "#111827"
+EMISSION_X_LABEL = "emission-adjusted count"
+EMISSION_CAPTION = "Background-corrected counts after frozen frame and site offsets."
+OVERLAP_LABEL = "equal-prior Gaussian overlap"
 
 
 class AssetInputError(ValueError):
@@ -191,6 +195,14 @@ def _selected_emission_metrics(block: Mapping[str, Any]) -> Mapping[str, Any]:
     raise AssetInputError(f"selected emission test metrics are missing for {selected}")
 
 
+def _total_emission_density(distribution: Mapping[str, Any]) -> np.ndarray:
+    empty = np.asarray(distribution["model_empty_density"], dtype=float)
+    occupied = np.asarray(distribution["model_occupied_density"], dtype=float)
+    if empty.shape != occupied.shape:
+        raise AssetInputError("emission component densities have different shapes")
+    return empty + occupied
+
+
 def _interval(rows: Sequence[Mapping[str, Any]], parameter: str) -> Mapping[str, Any]:
     for row in rows:
         if row["parameter"] == parameter:
@@ -229,14 +241,21 @@ def _draw_occupancy(result: Mapping[str, Any], path: Path) -> None:
             color=ACCENT_2,
             label="occupied component",
         )
+        ax.plot(
+            x,
+            _total_emission_density(distribution),
+            color=TOTAL_MODEL_COLOR,
+            linewidth=1.5,
+            label="total frozen model",
+        )
         ax.set_title(f"{exposure[:-2]} ms exposure")
-        ax.set_xlabel("background-adjusted count")
+        ax.set_xlabel(EMISSION_X_LABEL)
         ax.text(
             0.03,
             0.96,
             (
                 f"d′ = {metrics['mean_separation_d_prime']:.2f}\n"
-                f"overlap = {100 * metrics['mean_model_implied_overlap']:.2f}%"
+                f"{OVERLAP_LABEL} = {100 * metrics['mean_model_implied_overlap']:.2f}%"
             ),
             transform=ax.transAxes,
             va="top",
@@ -403,11 +422,21 @@ def _render_story_scene(
         )
         ax.plot(x, distribution["model_empty_density"], color=ACCENT, lw=2, label="empty component")
         ax.plot(x, distribution["model_occupied_density"], color=ACCENT_2, lw=2, label="occupied component")
-        ax.set_xlabel("background-corrected count"); ax.set_ylabel("density"); ax.legend(loc="upper right")
-        ax.text(0.025, 0.94, f"model-implied overlap = {100 * metrics['mean_model_implied_overlap']:.2f}%",
+        ax.plot(
+            x,
+            _total_emission_density(distribution),
+            color=TOTAL_MODEL_COLOR,
+            linewidth=1.5,
+            label="total frozen model",
+        )
+        ax.set_xlabel(EMISSION_X_LABEL); ax.set_ylabel("density"); ax.legend(loc="upper right")
+        ax.text(0.025, 0.94, f"{OVERLAP_LABEL} = {100 * metrics['mean_model_implied_overlap']:.2f}%",
                 transform=ax.transAxes, va="top", color=INK, fontsize=11,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=GRID))
-        _story_caption(fig, "Held-out emission model; separation is model-implied, not empirical fidelity.")
+        _story_caption(
+            fig,
+            f"{EMISSION_CAPTION} Display clipped to held-out 0.25th–99.75th percentiles.",
+        )
     elif index == 6:
         ax = fig.add_axes([0.12, 0.22, 0.76, 0.56]); frames = np.arange(1, 6)
         ax.plot(frames, story.posterior_by_frame, marker="o", ms=8, lw=2.2, color=ACCENT_2)
@@ -506,7 +535,14 @@ def _draw_occupancy_summary(
     )
     axes[1, 0].plot(x, distribution["model_empty_density"], color=ACCENT, lw=1.8, label="empty")
     axes[1, 0].plot(x, distribution["model_occupied_density"], color=ACCENT_2, lw=1.8, label="occupied")
-    axes[1, 0].set_title("held-out emission model"); axes[1, 0].set_xlabel("corrected count")
+    axes[1, 0].plot(
+        x,
+        _total_emission_density(distribution),
+        color=TOTAL_MODEL_COLOR,
+        linewidth=1.5,
+        label="total frozen model",
+    )
+    axes[1, 0].set_title("held-out emission model"); axes[1, 0].set_xlabel(EMISSION_X_LABEL)
     axes[1, 0].set_ylabel("density"); axes[1, 0].legend(fontsize=8)
     frames = np.arange(1, 6)
     axes[1, 1].plot(frames, story.posterior_by_frame, marker="o", color=ACCENT_2, lw=2)
@@ -514,7 +550,10 @@ def _draw_occupancy_summary(
     axes[1, 1].set_xlabel("frame"); axes[1, 1].set_ylabel("mean posterior")
     axes[1, 1].set_ylim(min(story.posterior_by_frame) - 0.012, max(story.posterior_by_frame) + 0.012)
     fig.suptitle("Image to apparent occupancy · 100 ms held-out example", fontsize=15, fontweight="bold")
-    fig.text(0.5, 0.025, "Model-implied separation; not empirical fidelity.",
+    fig.text(
+        0.5,
+        0.025,
+        f"{EMISSION_CAPTION} Display clipped to held-out 0.25th–99.75th percentiles.",
              ha="center", color=MUTED, fontsize=9)
     fig.canvas.draw()
     image = Image.fromarray(np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy(), mode="RGB")

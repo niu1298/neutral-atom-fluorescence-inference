@@ -1,7 +1,7 @@
 {
   "analysis_code_commit": "aa97a7e318cf184c0fcd004e895c061ba5eb1aca",
   "animation": {
-    "bytes": 2801743,
+    "bytes": 2840292,
     "duration_s": 11.5,
     "fps": 10,
     "height_px": 600,
@@ -18,12 +18,12 @@
       "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
     },
     "optimized_occupancy_inference.gif": {
-      "bytes": 2801743,
-      "sha256": "123e205934896e73ab82a215b6a1e91277d4ff04c4acdbd77e30363f22be8bb7"
+      "bytes": 2840292,
+      "sha256": "5055abdf39d7c6017a6e1724a85ae22c1c800c375cf9af90292436ea5081fc8f"
     },
     "optimized_occupancy_inference.png": {
-      "bytes": 145396,
-      "sha256": "9ff926a710784bfcc28e2b371b4bee0ab0a6ebdd1a3168d0668ca7a6c2c5320d"
+      "bytes": 152749,
+      "sha256": "047011e9869e3d5bdd4b258169bdbd9c081b3d66b0d6b15b82524cf79325bd9b"
     },
     "optimized_readout_tradeoff.png": {
       "bytes": 147316,
