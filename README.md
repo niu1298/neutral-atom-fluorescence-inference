@@ -1,262 +1,214 @@
 # Neutral-Atom Fluorescence Inference
 
-From raw neutral-atom fluorescence images to held-out occupancy inference and operational imaging-loss diagnostics.
+From raw fluorescence images to held-out latent-occupancy inference, operational lifetimes, and repeated-imaging loss attribution.
 
-**Scientific question** — which fluorescence-count features generalize to
-unseen shots, and what timing dependence remains after per-run geometry,
-site-free background correction, frozen model selection, and complete-shot
-uncertainty?
+[**Inference**](#from-images-to-apparent-occupancy) ·
+[**Results**](#main-results) ·
+[**Experiments**](#experiments-and-timing) ·
+[**Repeated imaging**](#repeated-imaging-and-loss-attribution) ·
+[**Methods**](#statistical-design) ·
+[**Reproduce**](#reproduce) ·
+[**Limitations**](#limitations)
 
-[**Measurements**](#from-fluorescence-images-to-measurements) ·
-[**Experiments**](#data-and-experiments) ·
-[**Statistical design**](#statistical-design) ·
-[**Results**](#operational-loss-sweep-results) ·
-[**Robustness**](#background-and-robustness) ·
-[**Reproduce**](#reproduce) · [**Limitations**](#limitations)
+## From images to apparent occupancy
 
-## From fluorescence images to measurements
+Each run gets its own training-only lattice geometry and site-free background
+model. Corrected site counts are then mapped to posterior occupied
+probabilities with an exposure-specific latent-class emission model. The
+independent experimental unit is a complete shot, never an individual site.
 
-Per-run geometry maps two-dimensional fluorescence images to ROI counts
-corrected with site-free pixels. The frame-site counts support descriptive or
-held-out occupancy probabilities; **apparent occupancy** is used because no
-empirical labels are available. The animation is a paired 100 ms extraction
-example, not the repository-wide result.
+![Image-to-occupancy workflow showing fluorescence frames, lattice ROIs, held-out count distributions, and posterior apparent occupancy](assets/readme/optimized_occupancy_inference.png)
 
-<p align="center">
-  <a href="assets/readme/fluorescence_inference_overview.gif">
-    <img src="assets/readme/fluorescence_inference_overview.gif"
-         alt="Paired-readout data-pipeline walkthrough: consecutive fluorescence frames, site ROIs, count extraction, background correction, a descriptive two-component fit, and paired counts."
-         width="540">
-  </a>
-</p>
+The occupied and empty classes are not externally labelled. Accordingly, this
+repository reports **apparent occupancy**, model-implied component overlap,
+and posterior entropy. It does not convert overlap into empirical readout
+fidelity or treat a posterior transition as an observed loss timestamp.
 
-**Pipeline:** Raw frames → site geometry → ROI and site-free background → corrected frame-site counts → held-out emission model → apparent occupancy / retention
+## Main results
 
-The independent experimental unit is a **shot**, not a site. Model-implied
-component overlap is not empirical fidelity, and paired disagreement is not
-automatically physical loss.
+The optimized 2026-07-31 data resolve two operational hazards under the
+recorded conditions and support a continuous-only description of the three
+five-frame acquisitions. Parentheses are 95% complete-shot cluster-bootstrap
+intervals.
 
-## Data and experiments
+| Quantity | Selected result | Interpretation |
+|---|---:|---|
+| dark operational lifetime | **35.73 s** (32.09–40.26 s) | commanded fully-dark holds |
+| bright operational lifetime | **20.30 s** (17.94–23.56 s) | continuous recorded illumination |
+| post-wait frame-1→frame-2 control | flat; `q₀ = 0.98834` (0.98569–0.99072) | no resolved trend with prior bright wait |
+| repeated-imaging model | continuous-only | pulse factor did not clear the held-out materiality gate |
 
-<!-- BEGIN:experiment-matrix -->
-| dataset | shots | frames | exposure | swept variable |
-|---|---:|---:|---:|---|
-| paired readout | 100 | 2 | 100 ms | none |
-| switch-off hold | 110 | 5 | 50 ms | 0.1–2.1 s |
-| bright wait | 100 | 2 | 50 ms | 0.1–1.9 s |
-<!-- END:experiment-matrix -->
+![Dark and bright lifetime fits, clustered intervals, and post-wait control](assets/readme/optimized_lifetime_overview.png)
 
-<p align="center">
-  <a href="assets/readme/sequence_design.png">
-    <img src="assets/readme/sequence_design.png"
-         alt="Commanded timing for the five-frame switch-off-hold sweep and the two-frame bright-wait sweep"
-         width="620">
-  </a>
-</p>
+The lifetime parameters are operational, not intrinsic apparatus limits. The
+dark estimate uses the experimenter-confirmed fully-dark intervals; the bright
+estimate applies to the recorded illuminated-wait sequence. Neither result is
+an optimized hardware specification.
 
-*“Switch-off” describes a command state, not demonstrated optical darkness;
-DDS frequency and amplitude commands remain configured during the hold.*
+### Held-out emission diagnostics
 
-**Progression:** (1) paired 100 ms readout establishes extraction/background;
-(2) five-frame 50 ms readout varies hold; (3) two-frame 50 ms readout varies
-bright wait; (4) their comparison tests whether continuous bright-time decay
-explains the apparent inter-readout loss.
+Validation independently selected a five-fold, site-offset shrinkage emission
+model at every exposure. The final test split was scored once.
 
-The sweeps have independent geometry/background and are not pooled; see the
-[command and shot-order audit](docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md).
+| Exposure | Test rows | Mean NLL | d-prime | Model-implied overlap | Posterior entropy |
+|---:|---:|---:|---:|---:|---:|
+| 50 ms | 10,000 | 8.1804 | 4.800 | 0.589% | 0.01362 |
+| 100 ms | 10,000 | 8.8860 | 5.108 | 0.327% | 0.01366 |
+| 200 ms | 10,000 | 9.4609 | 5.423 | 0.196% | 0.01163 |
+
+Validation-only checks found no weak sites and no evidence strong enough to
+justify a third count state or heavy-tail component. Exposure-specific models
+are retained: thresholds are not shared across 50, 100, and 200 ms frames.
+
+## Experiments and timing
+
+Five acquisitions contain 720 complete shots and 300,000 frame-site rows after
+standardization. All expected frames are present, all compiled-command timing
+audits pass, and no science frame has saturated or non-finite pixels.
+
+| Measurement | Shots | Frames | Exposure | Varied timing | Frozen split |
+|---|---:|---:|---:|---|---:|
+| bright lifetime | 200 | 2 | 50 ms | wait 0.1–8.1 s | 120 / 40 / 40 |
+| dark lifetime | 220 | 5 | 50 ms | hold 0.1–2.1 s | 132 / 44 / 44 |
+| repeated imaging | 100 | 5 | 50 ms | fixed sequence | 60 / 20 / 20 |
+| repeated imaging | 100 | 5 | 100 ms | fixed sequence | 60 / 20 / 20 |
+| repeated imaging | 100 | 5 | 200 ms | fixed sequence | 60 / 20 / 20 |
+
+![Commanded bright, dark, and exposure intervals for the optimized lifetime and repeated-imaging acquisitions](assets/readme/optimized_sequence_design.png)
+
+For repeated imaging, prefix `N` contains `N × exposure` of cumulative bright
+time and `(N − 1) × 10 ms` of cumulative dark time. Compiled frame starts add
+2 µs of command-update overhead; that overhead is recorded separately and is
+not silently added to the physical dark interval.
+
+Geometry is fitted independently from training shots for all five runs. The
+early/late or start/end refits, registration checks, and residual-distortion
+gates all pass. Training-only background selection chooses a robust spatial
+surface for the 50 ms repeated run and a fixed template plus per-frame offset
+for the other four runs.
+
+The complete source, sequence, geometry, and background evidence is in the
+[optimized data audit](docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md).
+
+## Repeated imaging and loss attribution
+
+### Apparent occupancy by frame
+
+All-shot descriptive occupancy falls across the five frames. Intervals below
+resample complete shots; they describe the selected latent-class observation
+model, not labelled survival outcomes.
+
+| Exposure | Frame 1 | Frame 2 | Frame 3 | Frame 4 | Frame 5 |
+|---:|---:|---:|---:|---:|---:|
+| 50 ms | 0.5282 | 0.5248 | 0.5227 | 0.5185 | 0.5170 |
+| 100 ms | 0.5336 | 0.5260 | 0.5211 | 0.5160 | 0.5108 |
+| 200 ms | 0.5260 | 0.5145 | 0.5049 | 0.4960 | 0.4885 |
+
+The selected continuous-only model predicts cumulative survival after frame 5
+of 0.9867, 0.9746, and 0.9509 at 50, 100, and 200 ms. Those values combine the
+separately estimated bright and dark hazards while retaining a run-specific
+initial loading probability.
+
+### Matched-total-bright-time contrasts
+
+The held-out, model-normalized complete-shot contrasts do not resolve a
+segmentation effect at fixed total bright time.
+
+| Total bright time | Comparison to least-segmented prefix | Difference (95% interval) |
+|---:|---|---:|
+| 100 ms | 2×50 vs 1×100 | −1.14 pp (−7.04 to 4.95 pp) |
+| 200 ms | 4×50 vs 1×200 | −0.67 pp (−6.43 to 4.95 pp) |
+| 200 ms | 2×100 vs 1×200 | +0.41 pp (−5.34 to 6.01 pp) |
+| 400 ms | 4×100 vs 2×200 | +0.93 pp (−5.28 to 6.84 pp) |
+
+![Matched-total-exposure contrasts and continuous-only versus pulse-associated model selection](assets/readme/exposure_segmentation_result.png)
+
+The pulse-associated model improves validation mean NLL by
+`4.88 × 10⁻⁵` per row, below the predeclared `1 × 10⁻⁴` materiality threshold,
+so the public pulse-loss claim gate remains closed. As an explicitly
+unselected sensitivity, that model estimates per-pulse survival
+`q = 0.99428`, with complete-shot and block-bootstrap intervals that exclude
+one. Model selection takes precedence over that conditional estimate.
+
+### Primary five-frame loss budget
+
+For the selected continuous-only model, the probability budget after all five
+frames is:
+
+| Exposure | Bright-segment loss | Dark-gap loss | Residual pulse term | Final survival |
+|---:|---:|---:|---:|---:|
+| 50 ms | 1.223% | 0.111% | 0% by structure | 98.666% |
+| 100 ms | 2.431% | 0.111% | 0% by structure | 97.458% |
+| 200 ms | 4.803% | 0.109% | 0% by structure | 95.088% |
+
+These are rate-based prior attributions over sequence segments. Integrated
+frames reveal neither an exact loss time nor a count-conditioned posterior
+location. The unselected pulse model's nonzero residual term is reported only
+as model-structure sensitivity in the
+[loss-decomposition document](docs/LOSS_DECOMPOSITION.md).
 
 ## Statistical design
 
-Each condition occurs once in each of ten complete acquisition cycles:
-
-- cycles 0–5: training, six shots per condition;
-- cycles 6–7: validation, two shots per condition;
-- cycles 8–9: final test, two shots per condition.
-
-Geometry, the fixed background template, and emissions are train-only;
-validation selects structure, and test shots are scored once. Primary
-intervals resample complete shots within condition. A separate whole-cycle
-bootstrap preserves cross-condition cycle dependence as a sensitivity, not a
-replacement confidence interval. Exact multiplicative loss accounting and
-model details are in the [interpretation document](docs/LOSS_SWEEP_INTERPRETATION.md).
-
-## Operational loss-sweep results
-
-Parentheses for both reported time constants are 95% complete-shot cluster
-confidence intervals. The apparent-gap row separately labels selected-model
-sampling uncertainty and cross-structure sensitivity.
-
-<!-- BEGIN:loss-sweep-results -->
-| operational quantity | selected result and qualification |
-|---|---:|
-| `tau_switch_off` | 22.29 s (15.57–33.15 s) |
-| `tau_bright_effective` | 1.64 s (1.50–1.83 s) |
-| observed − predicted 50 ms apparent-loss gap | 10.26 percentage points (8.62–11.79 percentage points); 6.57–10.26 percentage points across the selected and unresolved floor structures |
-
-Under the selected no-floor model, the apparent gap is 10.26 percentage points with a 95% complete-shot sampling interval of 8.62–11.79 percentage points. The unresolved floor alternative gives 6.57 percentage points, so the model-structure sensitivity is 6.57–10.26 percentage points. The sign remains positive, but the selected-model sampling interval is not total model uncertainty.
-
-The simple constant-rate bright-wait model does not explain the full apparent inter-readout loss. This does not establish a fixed per-pulse mechanism.
-<!-- END:loss-sweep-results -->
-
-| ![Four-panel overview of switch-off retention, interval factors, bright-wait occupancy, and the post-wait control](assets/readme/loss_sweep_overview.png) |
-|:--|
-| Points summarize all 10 shots per condition; selected structures and fitted bands follow the frozen train/validation workflow. Intervals use complete shots as clusters. |
-
-`tau_switch_off` is an operational time constant under the commanded
-switch-off configuration: realized optical extinction was not measured and
-cooling was not optimized. `tau_bright_effective` is specific to the recorded
-illuminated-wait configuration. Neither is an intrinsic or best-achievable
-apparatus lifetime.
-
-The 8.62–11.79 percentage-point interval is sampling uncertainty conditional
-on the validation-selected no-floor structure. The 6.57–10.26
-percentage-point range compares that selected structure with the unresolved
-floor alternative; it is **not** a confidence interval or total uncertainty.
-Both structures leave a positive apparent gap.
-
-The central conclusion is deliberately narrow: the simple constant-rate
-bright-wait model does not explain the full apparent inter-readout loss. The
-gap does not identify a fixed per-pulse cost, switching transient,
-classification error, nonstationary heating, state selection, or any other
-single mechanism.
-
-## Background and robustness
-
-| ![Per-frame site-free background change relative to the shortest sweep point](assets/readme/background_drift_sweeps.png) |
-|:--|
-| Selected site-free background by frame, expressed relative to that frame’s shortest sweep point. Error bars retain the pointwise complete-shot cluster interval widths; they are not paired-difference intervals. |
-
-No correction, global site-free median, robust spatial surface, and a fixed
-training template plus per-frame site-free offset were compared. Validation
-selected the template-plus-offset method for both sweeps using physical
-masking, residual structure, drift, and background coupling—not by maximizing
-count separation.
-
-The legacy local annulus is diagnostic only. At the 10–11 px pitch it
-intersects neighbouring-site masks for every sweep site, so it cannot serve as
-the primary background estimator. The first switch-off frame also has a large
-site-free pedestal, and the bright-wait background changes with sweep
-position; neither effect is estimated from the occupancy-dependent low tail of
-trap counts.
-
-The switch-off endpoint sensitivity keeps the validation-frozen shared-slope
-structure. Removing the shortest point, the longest point, or both moves
-`tau_switch_off` from 22.29 s to 21.54 s, 20.57 s, or 19.42 s,
-respectively; all four fits remain positive and non-boundary. The whole-cycle
-bootstrap gives an apparent gap of 10.26 percentage points
-(8.81–11.61 percentage points), consistent with the primary conclusion.
-
-Sweep values ascend in fixed order within every cycle. Repeated cycles and
-complete-shot clustering capture repeat variability, but no analysis can
-separate a true timing effect from an unexplained drift locked perfectly to
-within-cycle position. This remains a design limitation, not a fitted-away
-nuisance.
-
-<!-- BEGIN:sweep-validation -->
-Both sweep timing audits, independent per-run geometry gates, the selected site-free background (template + frame offset for both sweeps), and frozen complete-shot splits pass. The two runs remain separate because they are distinct acquisitions with different geometry and background trajectories. The exploratory latent-state model is not accepted as a public result because complete-shot clustered uncertainty for its transition parameters is unavailable.
-<!-- END:sweep-validation -->
-
-Detailed geometry shifts, A/B/C/D background metrics, representative-shot
-rules, endpoint checks, and cycle sensitivities are in
-[V0 validation](docs/VALIDATION.md),
-[the V0 audit](docs/DATA_AUDIT.md), and
-[the sweep audit](docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md).
-
-## Scientific interpretation
-
-The three datasets support a narrow chain of inference:
-
-- the paired readout validates extraction, background handling, and
-  descriptive readout consistency;
-- held-out sweep counts support apparent occupancy under the selected emission
-  model;
-- the switch-off sweep supports an operational decay rate and apparent fixed
-  interval factors `q_j`;
-- the bright-wait sweep supports an effective apparent-occupancy decay and a
-  separate post-wait apparent-retention control;
-- their comparison rejects the simple constant-rate bright-wait explanation
-  as sufficient for the full apparent inter-readout loss.
-
-Validation selected a flat post-wait retention control. Its κ = 0 is fixed by
-that selected structure, not estimated as a precise zero trend. The unselected
-monotone sensitivity places κ on its boundary and does not
-resolve a trend; neither result identifies heating.
-
-The exploratory latent-state fit improves ordinary held-out likelihood, but
-its public gate remains closed because complete-shot clustered transition
-uncertainty is unavailable. Synthetic recovery passed its declared threshold
-but retained 28.1% relative rate error, supporting predictive sequence
-structure rather than a precise physical rate. No latent trajectory or
-transition rate is promoted as a physical result.
-
-The [claim table](docs/LOSS_SWEEP_INTERPRETATION.md) gives each quantity’s
-operational definition, assumptions, uncertainty method, permitted claim, and
-prohibited claim.
+- Splits are frozen by complete acquisition cycles or chronological shots;
+  geometry, background, and emission fitting use training data only,
+  validation selects structure, and final test shots are scored once.
+- Lifetime intervals and primary repeated-imaging intervals use 1,000
+  complete-shot cluster-bootstrap replicates. A contiguous-block bootstrap
+  preserves slow shot-order drift as a separate sensitivity.
+- Dark and bright hazards enter survival multiplicatively. Exposure runs keep
+  separate initial loading, and matched-prefix comparisons condition on equal
+  cumulative bright time while accounting for each 10 ms dark gap.
+- Public claims require held-out improvement, a predeclared materiality gate,
+  stable clustered uncertainty, and agreement across background, split, and
+  drift sensitivities. Full definitions are in
+  [Statistical methods](docs/STATISTICAL_METHODS.md).
 
 ## Reproduce
 
-Create the untracked local path configuration, install the package in a
-repository-local environment, and run:
+After configuring the local raw-data roots, the optimized analysis is
+reproduced with one command from the repository root:
 
-```text
-.\.venv\Scripts\python.exe scripts\reproduce_all.py
+```powershell
+.\.venv\Scripts\python.exe scripts\reproduce_optimized_lifetimes.py
 ```
 
-The command requires a clean worktree, audits all three datasets, regenerates
-the standardized local exports, validation reports, reviewed result, public
-assets, generated metrics, full tests, and publication manifest. It never
-substitutes synthetic measurements when raw data are unavailable.
+The command audits and exports all five datasets, refits training-only geometry
+and backgrounds, performs the frozen analysis with 1,000 bootstrap replicates,
+and writes the reviewed result. It refuses publication from dirty scientific
+code. Detailed prerequisites, output contracts, and the preserved V0/V1
+commands are in [Reproduction](docs/REPRODUCE.md).
 
-The exact Windows commands, standalone stages, and non-overwriting reviewed
-verification workflow are in [`docs/REPRODUCE.md`](docs/REPRODUCE.md).
+The reviewed machine-readable result is
+[`reports/optimized_lifetime_results_20260731.json`](reports/optimized_lifetime_results_20260731.json).
+The publication manifest binds that result to the analysis commit, inputs,
+documents, environment, and exact same-environment asset hashes.
 
 ## Documentation
 
-- [V0 data audit](docs/DATA_AUDIT.md)
-- [2026-07-28 sweep audit](docs/DATA_AUDIT_2026-07-28_LOSS_SWEEPS.md)
-- [Detailed validation](docs/VALIDATION.md)
-- [Data contract and provenance](docs/DATA_CONTRACT.md)
-- [Scientific claim table and robustness values](docs/LOSS_SWEEP_INTERPRETATION.md)
-- [Prototype discrepancy ledger](docs/PROTOTYPE_DISCREPANCY_LEDGER.md)
-- [Generated public metrics](reports/readme_metrics.md)
-- [Prioritized next experiments](docs/NEXT_EXPERIMENTS.md)
+- [Optimized result interpretation](docs/OPTIMIZED_LIFETIME_RESULTS.md) — full
+  estimates, held-out scores, intervals, and sensitivity boundaries.
+- [Statistical methods](docs/STATISTICAL_METHODS.md) — estimands, splits,
+  likelihoods, model gates, and clustered uncertainty.
+- [Loss decomposition](docs/LOSS_DECOMPOSITION.md) — segment probabilities,
+  matched-prefix identification, and location limits.
+- [Optimized data audit](docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md) —
+  source completeness, exact timing, geometry, background, and data contract.
+- [2026-07-28 pre-optimization benchmark](docs/LOSS_SWEEP_INTERPRETATION.md) —
+  retained for reproducibility and historical comparison, not mixed into the
+  optimized estimates above.
 
 ## Limitations
 
-- The nominal dark hold commands the imaging switches off while DDS frequency
-  and amplitude commands remain configured. Without an extinction
-  measurement, `tau_switch_off` is not an intrinsic dark lifetime.
-- Cooling was not optimized, so neither reported rate is a best-achievable
-  apparatus benchmark.
-- Both sweeps are from one date with only 10 independent shots per condition;
-  sites and frames within a shot are not additional experimental repeats.
-- Cycles 0–5/6–7/8–9 define train/validation/test. The final test contains only
-  two shots per condition.
-- Sweep values ascend in fixed order within every cycle, perfectly confounding
-  condition with within-cycle position.
-- There is no empirical occupancy ground truth, matched-empty fluorescence
-  sequence, complete dark-frame control, or pre/post nondestructive reference.
-- The first switch-off frame has a large site-free pedestal. The sweep runs
-  also differ by about one lattice pitch and have different background
-  trajectories, so their rates are compared but their data are not pooled.
-- Interval factors `q_j` mix apparent fixed loss, classification error,
-  sequence transients, and state selection.
-- The paired 100 ms mixture is a full-data descriptive fit, not held out, and
-  paired disagreement is not identified as physical loss.
-- The selected no-floor sampling interval is conditional on one model
-  structure. The 6.57–10.26 percentage-point structural range is not a
-  confidence interval or total model uncertainty.
-- Endpoint deletion and whole-cycle bootstrap checks support the qualitative
-  result, but they do not remove the fixed-order confounding or establish a
-  causal mechanism.
-- The selected flat post-wait model fixes κ = 0 structurally; it does
-  not measure a precisely zero physical heating trend.
-- The latent model lacks complete-shot clustered transition uncertainty and
-  has about 28.1% synthetic rate-recovery error, so it remains exploratory.
-- The observed-minus-predicted apparent gap leaves the mechanism unidentified.
-  A randomized exposure-duration and pulse-count experiment is required to
-  test a fixed-per-pulse hypothesis.
+- Occupancy is latent: there are no external per-site labels, so model overlap
+  is not empirical fidelity and apparent loss is model-dependent.
+- Each exposure has one acquisition run; exposure and run remain partly
+  confounded, and fixed within-cycle ordering cannot eliminate aligned drift.
+- Optical extinction and exact atom-loss times were not measured. Loss
+  location is therefore probabilistic segment attribution, not event timing.
+- The 0090 bright-lifetime run differs in pre-heat commands, so transferring
+  its hazard to repeated imaging is tested as a sensitivity rather than assumed
+  universal.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,144 @@
+{
+  "analysis_code_commit": "aa97a7e318cf184c0fcd004e895c061ba5eb1aca",
+  "bootstrap_replicates": 1000,
+  "clean_analysis_worktree": true,
+  "configs": {
+    "100ms": {
+      "config_sha256": "6aeca18c6367b0e05c737944bd10b8aaa6981f1a010241116d76cc3859737a55",
+      "file": "imaging_5frame_100ms_20260731_0114.yaml",
+      "processed_input_manifest": {
+        "manifest_sha256": "a02acc53597d6b4eae50bd14a3b5c58f6cd3e1d33863d20a9427d43450b312ac",
+        "n_files": 100,
+        "total_bytes": 487120441
+      },
+      "source_audit_sha256": "2465f9e76fb39e6fe5acb28c4c2539a2a0dc30825e825ec7e8f58727618c2d1c"
+    },
+    "200ms": {
+      "config_sha256": "ccd3bc8e093acbf20613f18306dab4dc6565d8985a89a050a862936bff797537",
+      "file": "imaging_5frame_200ms_20260731_0115.yaml",
+      "processed_input_manifest": {
+        "manifest_sha256": "e7f1c121753a4525e5502f92e77d1134e92d8f8c1a51d6508bf2897482f9212e",
+        "n_files": 100,
+        "total_bytes": 499988225
+      },
+      "source_audit_sha256": "5e9607d456a7647c25cf6159ac3bdbcf9308d81221d171fa02880867a6739739"
+    },
+    "50ms": {
+      "config_sha256": "a8a240db96e03687cbc6db2903db6b5eec460cf72f39dcfe128370d7331e4bc8",
+      "file": "imaging_5frame_50ms_20260731_0113.yaml",
+      "processed_input_manifest": {
+        "manifest_sha256": "310cca5773ed805db0e6d8892ffaa3ef490514fb83614d532eed0dd80f8d2815",
+        "n_files": 100,
+        "total_bytes": 469649727
+      },
+      "source_audit_sha256": "a2c2fa1088bfe032ff249812877bb36bb39318560eeb15d8869d371cb9c2f242"
+    },
+    "bright": {
+      "config_sha256": "670c7b3bf2a9d755bc39036b5795d236569bac292f8f5368f9511f2a36b3d068",
+      "file": "bright_lifetime_20260731_0090.yaml",
+      "processed_input_manifest": {
+        "manifest_sha256": "59fada6dda5545d0f1557b6643cb62a7ca3d71838dad518c48472e48f94590c1",
+        "n_files": 200,
+        "total_bytes": 605009308
+      },
+      "source_audit_sha256": "fca97449ff13d614d37000de55072f81b6e815015b06f2eeb545db2d66e2aed8"
+    },
+    "dark": {
+      "config_sha256": "e247df625e890ae626c08fd3dbc8235c7920770739d8b8c6102f3e6a6f35cb51",
+      "file": "dark_lifetime_20260731_0094.yaml",
+      "processed_input_manifest": {
+        "manifest_sha256": "e4ea0c9b191c506d9b685bfb66590723e84f3d479c211eaa75b2b4ec164af717",
+        "n_files": 220,
+        "total_bytes": 1029788797
+      },
+      "source_audit_sha256": "f2137e1b331b624722e2e21560419e104e68def942475f48205006cb0a809702"
+    }
+  },
+  "environment": {
+    "packages": {
+      "h5py": "3.16.0",
+      "matplotlib": "3.11.1",
+      "numpy": "2.4.6",
+      "pandas": "3.0.5",
+      "pyarrow": "25.0.0",
+      "scipy": "1.17.1"
+    },
+    "platform": "win32",
+    "python": "3.11.9"
+  },
+  "model_version": "optimized-lifetimes-v1.0",
+  "public_assets": {
+    "assets/readme/exposure_segmentation_result.png": {
+      "bytes": 70188,
+      "sha256": "3cd106c7893e81ee65cc0ca169f127c6ce505146e066e3edc77a425acc53966c"
+    },
+    "assets/readme/fluorescence_inference_overview.gif": {
+      "bytes": 1988865,
+      "sha256": "b9312b897eb946c8dfe8396c0e4bcdeab137c3c4d4d2e1eb9c22cf4a8e1db86e"
+    },
+    "assets/readme/optimized_lifetime_overview.png": {
+      "bytes": 155766,
+      "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
+    },
+    "assets/readme/optimized_occupancy_inference.png": {
+      "bytes": 169079,
+      "sha256": "3ec67c74e0093033700c0b194cfedacc6c9ac5ca38b1b98dc3815b6a2bce894e"
+    },
+    "assets/readme/optimized_sequence_design.png": {
+      "bytes": 58097,
+      "sha256": "faee25a2ea004fcea79059820dc387f5b50f21566a906961893c12320cc61f95"
+    }
+  },
+  "public_documents": {
+    "README.md": {
+      "bytes": 10644,
+      "sha256": "046c0e09b47aeda55c20b8ded245d47c267695513a88218e3464937ae8a26bef"
+    },
+    "docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md": {
+      "bytes": 10225,
+      "sha256": "d2f3ce4ff70dc1afefed046250c7c9f0b03dd0a1a6175516d2e4da639514592c"
+    },
+    "docs/LOSS_DECOMPOSITION.md": {
+      "bytes": 4498,
+      "sha256": "c1310059750549b98e1836fae5f44e518f05bdee5db89da84fdcc15e58a48bb0"
+    },
+    "docs/LOSS_SWEEP_INTERPRETATION.md": {
+      "bytes": 14427,
+      "sha256": "5359a405bae1239546b641f9750632a5ae052e8815170521bfafcd0485a44253"
+    },
+    "docs/OPTIMIZED_LIFETIME_RESULTS.md": {
+      "bytes": 8818,
+      "sha256": "30134b46cbddae1160e9a8d6f0de457ae8733e2cafefe0fb296aeb4242480fa9"
+    },
+    "docs/REPRODUCE.md": {
+      "bytes": 4911,
+      "sha256": "d2ecea151efaf9659d5de198833f6edd9d6b7916aa233b99d6b1b156fd7f0708"
+    },
+    "docs/STATISTICAL_METHODS.md": {
+      "bytes": 6231,
+      "sha256": "1b69c849b310abd6e4f8ffac269de96cde3f7df72fe34102ed90f93cda6272e2"
+    },
+    "reports/optimized_readme_metrics_20260731.md": {
+      "bytes": 746,
+      "sha256": "f613507301513a8d85f94dccdc29a03573f155760788bbc782f28f6a2ddf6737"
+    }
+  },
+  "random_seed": 20260731,
+  "reproduction_command": ".\\.venv\\Scripts\\python.exe scripts\\reproduce_optimized_lifetimes.py",
+  "result": {
+    "path": "reports/optimized_lifetime_results_20260731.json",
+    "scientific_payload_sha256": "fe75c9a72936b638e82337a38a04cd4e5a894cdbdf1f1bf42d21983ca5dbfd22",
+    "sha256": "3a56b8f47f844d5962c7b5a8a9c4371676d4457778379e6cbfb12087120fad15"
+  },
+  "schema_version": "optimized-publication-manifest-v1",
+  "validation_inputs": {
+    "background_report_sha256": "3a412f5ddd1dfca2c1c1b3c3b9761f30e56bac5e8cb55a6179925678c034cfa6",
+    "geometry_report_sha256": "d0d5d3974e09f9edf1be98644e91c8f64e7c7d32817a8b26ef9b12a161283fba"
+  },
+  "verification": {
+    "asset_hash_mode": "exact-same-environment",
+    "independent_experimental_unit": "complete shot",
+    "landing_page_guard": "tests/test_readme_narrative.py",
+    "privacy_and_authorship_guard": "tests/test_privacy.py"
+  }
+}

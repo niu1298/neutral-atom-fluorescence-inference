@@ -76,8 +76,8 @@ def _result() -> dict:
         "provenance": {"publishable_clean_provenance": True, "analysis_code_commit": "a" * 40},
         "prerequisite_evidence": {"timing_and_compiled_commands_verified": True, "geometry_validated": {"all": True}, "background_frozen": {"all": True}},
         "optimized_dark_bright": {
-            "dark_hold": {"operational_model": {"tau_switch_off": 35.7, "model_band": dark_band, "clustered_apparent_retention_curve": dark_curve, "bootstrap": {"intervals": [{"parameter": "tau_switch_off__shared", "lower": 32.3, "upper": 40.1}]}}},
-            "bright_wait": {"effective_model": {"tau_bright_effective": 20.3, "model_band": _curve("wait_s"), "clustered_apparent_occupancy_curve": bright_curve, "bootstrap": {"intervals": [{"parameter": "tau_bright_effective", "lower": 18.0, "upper": 23.1}]}}},
+            "dark_hold": {"operational_model": {"tau_switch_off": {"estimate": 35.7, "lower": 32.3, "upper": 40.1}, "model_band": dark_band, "clustered_apparent_retention_curve": dark_curve, "bootstrap": {"intervals": [{"parameter": "tau_switch_off__shared", "estimate": 35.7, "lower": 32.3, "upper": 40.1}]}}},
+            "bright_wait": {"effective_model": {"tau_bright_effective": {"estimate": 20.3, "lower": 18.0, "upper": 23.1}, "model_band": _curve("wait_s"), "clustered_apparent_occupancy_curve": bright_curve, "bootstrap": {"intervals": [{"parameter": "tau_bright_effective", "estimate": 20.3, "lower": 18.0, "upper": 23.1}]}}},
         },
         "repeated_imaging": {"emission_models_by_exposure": emission, "heldout_matched_prefix_contrasts": matched, "selected_model": "continuous_only", "allowed_pulse_claim": False},
         "loss_budget": {"point_estimates": budgets},

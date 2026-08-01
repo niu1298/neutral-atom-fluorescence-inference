@@ -1,0 +1,23 @@
+{
+  "analysis_code_commit": "aa97a7e318cf184c0fcd004e895c061ba5eb1aca",
+  "assets": {
+    "exposure_segmentation_result.png": {
+      "bytes": 70188,
+      "sha256": "3cd106c7893e81ee65cc0ca169f127c6ce505146e066e3edc77a425acc53966c"
+    },
+    "optimized_lifetime_overview.png": {
+      "bytes": 155766,
+      "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
+    },
+    "optimized_occupancy_inference.png": {
+      "bytes": 169079,
+      "sha256": "3ec67c74e0093033700c0b194cfedacc6c9ac5ca38b1b98dc3815b6a2bce894e"
+    },
+    "optimized_sequence_design.png": {
+      "bytes": 58097,
+      "sha256": "faee25a2ea004fcea79059820dc387f5b50f21566a906961893c12320cc61f95"
+    }
+  },
+  "generated_by": "scripts/generate_optimized_assets.py",
+  "result_sha256": "3a56b8f47f844d5962c7b5a8a9c4371676d4457778379e6cbfb12087120fad15"
+}

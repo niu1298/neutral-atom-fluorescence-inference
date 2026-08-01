@@ -1,4 +1,10 @@
-# Interpreting the loss-sweep quantities
+# 2026-07-28 pre-optimization loss-sweep benchmark
+
+> **Historical benchmark.** This document and
+> `reports/loss_sweep_results.json` preserve the 2026-07-28 analysis and remain
+> reproducible through `scripts/reproduce_all.py`. They are not the source of
+> the optimized 2026-07-31 lifetimes, repeated-imaging model, or loss budget.
+> See [optimized results](OPTIMIZED_LIFETIME_RESULTS.md) for the current result.
 
 This document defines the public quantities before numerical interpretation.
 Exact estimates and intervals are generated into `reports/readme_metrics.md`;
