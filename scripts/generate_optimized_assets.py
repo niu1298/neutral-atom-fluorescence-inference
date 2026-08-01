@@ -62,6 +62,10 @@ CORRECTED_HIST_EDGE = "#1f4d70"
 TOTAL_MODEL_COLOR = "#111827"
 EMISSION_X_LABEL = "emission-adjusted count"
 EMISSION_CAPTION = "Background-corrected counts after frozen frame and site offsets."
+EMISSION_CALIBRATION_NOTE = (
+    "Frozen training-fit model evaluated on held-out shots; "
+    "small calibration residuals remain."
+)
 OVERLAP_LABEL = "equal-prior Gaussian overlap"
 
 
@@ -435,7 +439,11 @@ def _render_story_scene(
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=GRID))
         _story_caption(
             fig,
-            f"{EMISSION_CAPTION} Display clipped to held-out 0.25th–99.75th percentiles.",
+            (
+                f"{EMISSION_CAPTION} Display clipped to held-out "
+                "0.25th–99.75th percentiles.\n"
+                f"{EMISSION_CALIBRATION_NOTE}"
+            ),
         )
     elif index == 6:
         ax = fig.add_axes([0.12, 0.22, 0.76, 0.56]); frames = np.arange(1, 6)
@@ -764,9 +772,9 @@ def _draw_readout_tradeoff(result: Mapping[str, Any], path: Path) -> None:
     ])
     fig, axes = plt.subplots(1, 2, figsize=(11.8, 4.4), constrained_layout=True)
     axes[0].plot(exposures, overlaps, color=ACCENT, marker="o", ms=8, lw=2.2)
-    axes[0].set_title("A. Held-out component overlap")
+    axes[0].set_title("A. Equal-prior Gaussian overlap")
     axes[0].set_xlabel("exposure duration (ms)")
-    axes[0].set_ylabel("model-implied overlap (%)")
+    axes[0].set_ylabel("equal-prior Gaussian overlap (%)")
     axes[0].set_xticks(exposures)
     axes[0].set_ylim(0, max(overlaps) * 1.35)
     for x, value in zip(exposures, overlaps):
@@ -788,11 +796,18 @@ def _draw_readout_tradeoff(result: Mapping[str, Any], path: Path) -> None:
     axes[1].annotate("greater destructive cost", xy=(190, survivals[-1]),
                      xytext=(70, 96.0), color=ACCENT_2,
                      arrowprops=dict(arrowstyle="-|>", color=ACCENT_2, lw=1.5))
-    fig.suptitle("Readout quality versus survival cost", fontsize=15, fontweight="bold")
+    fig.suptitle(
+        "Model-implied separation versus survival cost",
+        fontsize=15,
+        fontweight="bold",
+    )
     fig.text(
         0.5,
         -0.015,
-        "Frozen 2026-07-31 values. Overlap is model-implied, not empirical fidelity.",
+        (
+            "Frozen 2026-07-31 values. Equal-prior Gaussian overlap is a "
+            "model diagnostic, not empirical fidelity."
+        ),
         ha="center",
         color=MUTED,
         fontsize=9.5,

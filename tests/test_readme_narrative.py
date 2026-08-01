@@ -30,7 +30,7 @@ def test_readme_has_requested_compact_section_order():
         "## From images to apparent occupancy",
         "## What was measured",
         "## Main results",
-        "## Readout quality versus survival cost",
+        "## Model-implied separation versus survival cost",
         "## Repeated imaging and pulse segmentation",
         "## Statistical contribution",
         "## Reproduce",
@@ -69,12 +69,12 @@ def test_readme_displays_exactly_four_nonduplicated_primary_assets():
 def test_main_table_has_only_requested_results():
     text = README.read_text(encoding="utf-8")
     section = text.split("## Main results", 1)[1].split(
-        "## Readout quality versus survival cost", 1
+        "## Model-implied separation versus survival cost", 1
     )[0]
     for phrase in (
         "dark operational lifetime",
         "bright operational lifetime",
-        "model-implied overlap",
+        "equal-prior Gaussian overlap (model diagnostic)",
         "selected-model predicted five-frame survival",
         "pulse segmentation",
     ):
@@ -138,8 +138,43 @@ def test_readme_links_all_detailed_claim_documents():
 def test_old_benchmark_values_are_not_mixed_into_headline():
     text = README.read_text(encoding="utf-8")
     main = text.split("## Main results", 1)[1].split(
-        "## Readout quality versus survival cost", 1
+        "## Model-implied separation versus survival cost", 1
     )[0]
     assert "22.29 s" not in main
     assert "1.64 s" not in main
     assert "10.26 percentage points" not in main
+
+
+def test_navigation_anchors_and_refined_calibration_wording_are_exact():
+    text = README.read_text(encoding="utf-8")
+    headings = [
+        line.removeprefix("## ")
+        for line in text.splitlines()
+        if line.startswith("## ")
+    ]
+    heading_anchors = {
+        re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-")
+        for heading in headings
+    }
+    navigation = text.split("## From images to apparent occupancy", 1)[0]
+    navigation_anchors = set(re.findall(r"\]\(#([^)]+)\)", navigation))
+    assert navigation_anchors <= heading_anchors
+    assert "model-implied-separation-versus-survival-cost" in navigation_anchors
+
+    overlap_label = "equal-prior Gaussian overlap (model diagnostic)"
+    section_title = "## Model-implied separation versus survival cost"
+    calibration_note = (
+        "The frozen training-fit model is evaluated on held-out shots; small "
+        "localized calibration residuals remain near the component modes, "
+        "without changing the reported lifetime or pulse-segmentation conclusions."
+    )
+    assert text.count(overlap_label) == 1
+    assert text.count(section_title) == 1
+    assert text.count(calibration_note) == 1
+    for forbidden in (
+        "measured classification error",
+        "verified readout accuracy",
+        "empirical FPR",
+        "empirical FNR",
+    ):
+        assert forbidden not in text

@@ -133,6 +133,10 @@ def test_emission_plot_labels_and_total_density_are_explicit():
     assert assets.EMISSION_CAPTION == (
         "Background-corrected counts after frozen frame and site offsets."
     )
+    assert assets.EMISSION_CALIBRATION_NOTE == (
+        "Frozen training-fit model evaluated on held-out shots; "
+        "small calibration residuals remain."
+    )
     assert assets.OVERLAP_LABEL == "equal-prior Gaussian overlap"
     distribution = _result()["repeated_imaging"]["emission_models_by_exposure"][
         "100ms"

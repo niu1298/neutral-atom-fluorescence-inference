@@ -6,7 +6,7 @@ operational lifetimes, and repeated-imaging loss attribution.
 [**Inference**](#from-images-to-apparent-occupancy) ·
 [**Measurements**](#what-was-measured) ·
 [**Results**](#main-results) ·
-[**Trade-off**](#readout-quality-versus-survival-cost) ·
+[**Trade-off**](#model-implied-separation-versus-survival-cost) ·
 [**Repeated imaging**](#repeated-imaging-and-pulse-segmentation) ·
 [**Statistics**](#statistical-contribution) ·
 [**Reproduce**](#reproduce) ·
@@ -32,6 +32,8 @@ The walkthrough uses the optimized 100 ms repeated-imaging test split. Its
 representative shot and site are selected by deterministic median rules, not
 visual quality. Geometry, background, and emission outputs are frozen before
 the visual is generated.
+
+The frozen training-fit model is evaluated on held-out shots; small localized calibration residuals remain near the component modes, without changing the reported lifetime or pulse-segmentation conclusions.
 
 The empty and occupied classes are not externally labelled. The output is
 therefore **apparent occupancy** under a **held-out emission model**.
@@ -77,7 +79,7 @@ parentheses are 95% complete-shot intervals.
 |---|---|
 | dark operational lifetime | **35.73 s** (32.09–40.26 s) |
 | bright operational lifetime | **20.30 s** (17.94–23.56 s) |
-| model-implied overlap | **0.59% / 0.33% / 0.20%** at 50 / 100 / 200 ms |
+| equal-prior Gaussian overlap (model diagnostic) | **0.59% / 0.33% / 0.20%** at 50 / 100 / 200 ms |
 | selected-model predicted five-frame survival | **98.67% / 97.46% / 95.09%** at 50 / 100 / 200 ms |
 | pulse segmentation | no material additional pulse term selected |
 
@@ -87,19 +89,20 @@ These are operational results for the recorded sequences, not intrinsic or
 best-achievable apparatus limits. The post-wait control is flat: no trend with
 the preceding illuminated wait is resolved.
 
-## Readout quality versus survival cost
+## Model-implied separation versus survival cost
 
 Longer exposure separates the fitted count components more clearly, but it
 also leaves less selected-model survival after five frames. The figure places
 both effects on the same exposure axis without converting count overlap into a
 labelled error rate.
 
-![Two-panel trade-off: exposure duration versus held-out model-implied overlap and selected-model five-frame cumulative survival](assets/readme/optimized_readout_tradeoff.png)
+![Two-panel trade-off: exposure duration versus equal-prior Gaussian overlap diagnostic and selected-model five-frame cumulative survival](assets/readme/optimized_readout_tradeoff.png)
 
-At 50, 100, and 200 ms, overlap decreases from 0.59% to 0.20% while predicted
-five-frame survival decreases from 98.67% to 95.09%. This is the central
-measurement-design trade-off: more photons improve model-implied separation,
-while longer illumination increases destructive cost.
+At 50, 100, and 200 ms, the equal-prior Gaussian overlap diagnostic decreases
+from 0.59% to 0.20% while predicted five-frame survival decreases from 98.67%
+to 95.09%. This is the central measurement-design trade-off: more photons
+improve model-implied separation, while longer illumination increases
+destructive cost.
 
 ## Repeated imaging and pulse segmentation
 

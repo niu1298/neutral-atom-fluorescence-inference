@@ -81,16 +81,16 @@
       "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
     },
     "assets/readme/optimized_occupancy_inference.gif": {
-      "bytes": 2840292,
-      "sha256": "5055abdf39d7c6017a6e1724a85ae22c1c800c375cf9af90292436ea5081fc8f"
+      "bytes": 2876281,
+      "sha256": "eb57601cc9ce0fa9d160edb6eb2b6aaad239fd44e5483775ddd61385e1359ff6"
     },
     "assets/readme/optimized_occupancy_inference.png": {
       "bytes": 152749,
       "sha256": "047011e9869e3d5bdd4b258169bdbd9c081b3d66b0d6b15b82524cf79325bd9b"
     },
     "assets/readme/optimized_readout_tradeoff.png": {
-      "bytes": 147316,
-      "sha256": "ed2e5c16e14823dbee79af69710d2961e4ce5e6f64c46318d82a622b1d6c9c96"
+      "bytes": 151587,
+      "sha256": "c260e253b1db5da7fb4644dd40c84888f60cc7b5373e022c591341d0326bf075"
     },
     "assets/readme/optimized_sequence_design.png": {
       "bytes": 64551,
@@ -99,8 +99,8 @@
   },
   "public_documents": {
     "README.md": {
-      "bytes": 8538,
-      "sha256": "c7c94a4e2d57ee2b5b890d55c5d434042bde1c0b5bb6c4df103eee55964e08a4"
+      "bytes": 8835,
+      "sha256": "950e8a6bc5235d7130ea7fac470c837db82bbc8109d2ab183ac5689e76bedd55"
     },
     "docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md": {
       "bytes": 10225,
