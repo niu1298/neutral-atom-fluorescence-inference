@@ -1,214 +1,183 @@
 # Neutral-Atom Fluorescence Inference
 
-From raw fluorescence images to held-out latent-occupancy inference, operational lifetimes, and repeated-imaging loss attribution.
+From raw fluorescence images to held-out latent-occupancy inference,
+operational lifetimes, and repeated-imaging loss attribution.
 
 [**Inference**](#from-images-to-apparent-occupancy) ·
+[**Measurements**](#what-was-measured) ·
 [**Results**](#main-results) ·
-[**Experiments**](#experiments-and-timing) ·
-[**Repeated imaging**](#repeated-imaging-and-loss-attribution) ·
-[**Methods**](#statistical-design) ·
+[**Trade-off**](#readout-quality-versus-survival-cost) ·
+[**Repeated imaging**](#repeated-imaging-and-pulse-segmentation) ·
+[**Statistics**](#statistical-contribution) ·
 [**Reproduce**](#reproduce) ·
 [**Limitations**](#limitations)
 
 ## From images to apparent occupancy
 
-Each run gets its own training-only lattice geometry and site-free background
-model. Corrected site counts are then mapped to posterior occupied
-probabilities with an exposure-specific latent-class emission model. The
-independent experimental unit is a complete shot, never an individual site.
+A camera frame becomes a measurement only after training-fitted lattice
+geometry defines the site ROIs, a site-free background estimate is removed,
+and an exposure-specific latent-class model maps corrected counts to posterior
+occupied probability.
 
-![Image-to-occupancy workflow showing fluorescence frames, lattice ROIs, held-out count distributions, and posterior apparent occupancy](assets/readme/optimized_occupancy_inference.png)
+<p align="center">
+  <picture>
+    <source srcset="assets/readme/optimized_occupancy_inference.gif" type="image/gif">
+    <img src="assets/readme/optimized_occupancy_inference.png"
+         alt="Deterministic walkthrough from a raw 100 ms fluorescence frame through frozen geometry, background correction, held-out emission inference, and apparent occupancy"
+         width="640">
+  </picture>
+</p>
 
-The occupied and empty classes are not externally labelled. Accordingly, this
-repository reports **apparent occupancy**, model-implied component overlap,
-and posterior entropy. It does not convert overlap into empirical readout
-fidelity or treat a posterior transition as an observed loss timestamp.
+The walkthrough uses the optimized 100 ms repeated-imaging test split. Its
+representative shot and site are selected by deterministic median rules, not
+visual quality. Geometry, background, and emission outputs are frozen before
+the visual is generated.
 
-## Main results
+The empty and occupied classes are not externally labelled. The output is
+therefore **apparent occupancy** under a **held-out emission model**.
+Separation and overlap are model-implied, **not empirical fidelity**.
 
-The optimized 2026-07-31 data resolve two operational hazards under the
-recorded conditions and support a continuous-only description of the three
-five-frame acquisitions. Parentheses are 95% complete-shot cluster-bootstrap
-intervals.
+The eight stages keep raw signal, preprocessing, statistical inference, and
+survival interpretation visually distinct. A paused frame still identifies
+the active stage and the frozen 100 ms condition, so the fallback image and
+animation tell the same scientific story without relabelling the older paired
+dataset.
 
-| Quantity | Selected result | Interpretation |
-|---|---:|---|
-| dark operational lifetime | **35.73 s** (32.09–40.26 s) | commanded fully-dark holds |
-| bright operational lifetime | **20.30 s** (17.94–23.56 s) | continuous recorded illumination |
-| post-wait frame-1→frame-2 control | flat; `q₀ = 0.98834` (0.98569–0.99072) | no resolved trend with prior bright wait |
-| repeated-imaging model | continuous-only | pulse factor did not clear the held-out materiality gate |
+The independent experimental unit throughout is a complete shot, never an
+individual site-frame observation.
 
-![Dark and bright lifetime fits, clustered intervals, and post-wait control](assets/readme/optimized_lifetime_overview.png)
+## What was measured
 
-The lifetime parameters are operational, not intrinsic apparatus limits. The
-dark estimate uses the experimenter-confirmed fully-dark intervals; the bright
-estimate applies to the recorded illuminated-wait sequence. Neither result is
-an optimized hardware specification.
+Five optimized acquisitions contain 720 complete shots. Two measure
+operational lifetime under varied dark or illuminated waits; three measure
+five-frame imaging at 50, 100, and 200 ms exposure.
 
-### Held-out emission diagnostics
-
-Validation independently selected a five-fold, site-offset shrinkage emission
-model at every exposure. The final test split was scored once.
-
-| Exposure | Test rows | Mean NLL | d-prime | Model-implied overlap | Posterior entropy |
-|---:|---:|---:|---:|---:|---:|
-| 50 ms | 10,000 | 8.1804 | 4.800 | 0.589% | 0.01362 |
-| 100 ms | 10,000 | 8.8860 | 5.108 | 0.327% | 0.01366 |
-| 200 ms | 10,000 | 9.4609 | 5.423 | 0.196% | 0.01163 |
-
-Validation-only checks found no weak sites and no evidence strong enough to
-justify a third count state or heavy-tail component. Exposure-specific models
-are retained: thresholds are not shared across 50, 100, and 200 ms frames.
-
-## Experiments and timing
-
-Five acquisitions contain 720 complete shots and 300,000 frame-site rows after
-standardization. All expected frames are present, all compiled-command timing
-audits pass, and no science frame has saturated or non-finite pixels.
-
-| Measurement | Shots | Frames | Exposure | Varied timing | Frozen split |
-|---|---:|---:|---:|---|---:|
-| bright lifetime | 200 | 2 | 50 ms | wait 0.1–8.1 s | 120 / 40 / 40 |
-| dark lifetime | 220 | 5 | 50 ms | hold 0.1–2.1 s | 132 / 44 / 44 |
-| repeated imaging | 100 | 5 | 50 ms | fixed sequence | 60 / 20 / 20 |
-| repeated imaging | 100 | 5 | 100 ms | fixed sequence | 60 / 20 / 20 |
-| repeated imaging | 100 | 5 | 200 ms | fixed sequence | 60 / 20 / 20 |
+| Measurement | Shots | Frames | Exposure | Experimental variation |
+|---|---:|---:|---:|---|
+| bright lifetime | 200 | 2 | 50 ms | illuminated wait 0.1–8.1 s |
+| dark lifetime | 220 | 5 | 50 ms | fully-dark hold 0.1–2.1 s |
+| repeated imaging | 100 | 5 | 50 ms | fixed five-frame sequence |
+| repeated imaging | 100 | 5 | 100 ms | fixed five-frame sequence |
+| repeated imaging | 100 | 5 | 200 ms | fixed five-frame sequence |
 
 ![Commanded bright, dark, and exposure intervals for the optimized lifetime and repeated-imaging acquisitions](assets/readme/optimized_sequence_design.png)
 
-For repeated imaging, prefix `N` contains `N × exposure` of cumulative bright
-time and `(N − 1) × 10 ms` of cumulative dark time. Compiled frame starts add
-2 µs of command-update overhead; that overhead is recorded separately and is
-not silently added to the physical dark interval.
-
-Geometry is fitted independently from training shots for all five runs. The
-early/late or start/end refits, registration checks, and residual-distortion
-gates all pass. Training-only background selection chooses a robust spatial
-surface for the 50 ms repeated run and a fixed template plus per-frame offset
-for the other four runs.
-
-The complete source, sequence, geometry, and background evidence is in the
+All expected frames are present, geometry and background gates pass
+independently for every run, and the declared interframe dark gap in repeated
+imaging is 10 ms. Full acquisition and validation evidence is in the
 [optimized data audit](docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md).
 
-## Repeated imaging and loss attribution
+## Main results
 
-### Apparent occupancy by frame
+The selected models resolve distinct operational dark and bright hazards and
+favor a continuous-only explanation of the repeated-imaging data. Lifetime
+parentheses are 95% complete-shot intervals.
 
-All-shot descriptive occupancy falls across the five frames. Intervals below
-resample complete shots; they describe the selected latent-class observation
-model, not labelled survival outcomes.
+| Quantity | Selected result |
+|---|---|
+| dark operational lifetime | **35.73 s** (32.09–40.26 s) |
+| bright operational lifetime | **20.30 s** (17.94–23.56 s) |
+| model-implied overlap | **0.59% / 0.33% / 0.20%** at 50 / 100 / 200 ms |
+| selected-model five-frame survival | **98.67% / 97.46% / 95.09%** at 50 / 100 / 200 ms |
+| pulse segmentation | no material additional pulse term selected |
 
-| Exposure | Frame 1 | Frame 2 | Frame 3 | Frame 4 | Frame 5 |
-|---:|---:|---:|---:|---:|---:|
-| 50 ms | 0.5282 | 0.5248 | 0.5227 | 0.5185 | 0.5170 |
-| 100 ms | 0.5336 | 0.5260 | 0.5211 | 0.5160 | 0.5108 |
-| 200 ms | 0.5260 | 0.5145 | 0.5049 | 0.4960 | 0.4885 |
+![Dark and bright lifetime fits, clustered intervals, and the selected rate-based loss budget](assets/readme/optimized_lifetime_overview.png)
 
-The selected continuous-only model predicts cumulative survival after frame 5
-of 0.9867, 0.9746, and 0.9509 at 50, 100, and 200 ms. Those values combine the
-separately estimated bright and dark hazards while retaining a run-specific
-initial loading probability.
+These are operational results for the recorded sequences, not intrinsic or
+best-achievable apparatus limits. The post-wait control is flat: no trend with
+the preceding illuminated wait is resolved.
 
-### Matched-total-bright-time contrasts
+## Readout quality versus survival cost
 
-The held-out, model-normalized complete-shot contrasts do not resolve a
-segmentation effect at fixed total bright time.
+Longer exposure separates the fitted count components more clearly, but it
+also leaves less selected-model survival after five frames. The figure places
+both effects on the same exposure axis without converting count overlap into a
+labelled error rate.
 
-| Total bright time | Comparison to least-segmented prefix | Difference (95% interval) |
-|---:|---|---:|
-| 100 ms | 2×50 vs 1×100 | −1.14 pp (−7.04 to 4.95 pp) |
-| 200 ms | 4×50 vs 1×200 | −0.67 pp (−6.43 to 4.95 pp) |
-| 200 ms | 2×100 vs 1×200 | +0.41 pp (−5.34 to 6.01 pp) |
-| 400 ms | 4×100 vs 2×200 | +0.93 pp (−5.28 to 6.84 pp) |
+![Two-panel trade-off: exposure duration versus held-out model-implied overlap and selected-model five-frame cumulative survival](assets/readme/optimized_readout_tradeoff.png)
 
-![Matched-total-exposure contrasts and continuous-only versus pulse-associated model selection](assets/readme/exposure_segmentation_result.png)
+At 50, 100, and 200 ms, overlap decreases from 0.59% to 0.20% while predicted
+five-frame survival decreases from 98.67% to 95.09%. This is the central
+measurement-design trade-off: more photons improve model-implied separation,
+while longer illumination increases destructive cost.
 
-The pulse-associated model improves validation mean NLL by
-`4.88 × 10⁻⁵` per row, below the predeclared `1 × 10⁻⁴` materiality threshold,
-so the public pulse-loss claim gate remains closed. As an explicitly
-unselected sensitivity, that model estimates per-pulse survival
-`q = 0.99428`, with complete-shot and block-bootstrap intervals that exclude
-one. Model selection takes precedence over that conditional estimate.
+## Repeated imaging and pulse segmentation
 
-### Primary five-frame loss budget
+The repeated-imaging analysis compares a continuous-only model with models
+that add a pulse-associated retention factor. Validation selects the
+continuous-only structure.
 
-For the selected continuous-only model, the probability budget after all five
-frames is:
+The extra pulse term produces a small positive held-out likelihood improvement,
+but it does not clear the predeclared materiality threshold. Direct
+matched-total-exposure contrasts—2×50 versus 1×100, 4×50 versus 2×100 versus
+1×200, and 4×100 versus 2×200—also have complete-shot intervals that cross
+zero.
 
-| Exposure | Bright-segment loss | Dark-gap loss | Residual pulse term | Final survival |
-|---:|---:|---:|---:|---:|
-| 50 ms | 1.223% | 0.111% | 0% by structure | 98.666% |
-| 100 ms | 2.431% | 0.111% | 0% by structure | 97.458% |
-| 200 ms | 4.803% | 0.109% | 0% by structure | 95.088% |
+Accordingly, the public pulse-loss claim gate remains closed. The conditional
+pulse factor is retained as model-structure sensitivity, not promoted over the
+selected model.
 
-These are rate-based prior attributions over sequence segments. Integrated
-frames reveal neither an exact loss time nor a count-conditioned posterior
-location. The unselected pulse model's nonzero residual term is reported only
-as model-structure sensitivity in the
-[loss-decomposition document](docs/LOSS_DECOMPOSITION.md).
+The selected five-frame loss budget attributes approximately 1.22%, 2.43%,
+and 4.80% to illuminated exposure at 50, 100, and 200 ms, with about 0.11%
+from the four dark gaps. The residual pulse term is zero by selected-model
+structure, not a precisely measured physical zero.
 
-## Statistical design
+Exact contrasts and the retained segmentation figure are in the
+[optimized results](docs/OPTIMIZED_LIFETIME_RESULTS.md) and
+[exposure-segmentation figure](assets/readme/exposure_segmentation_result.png).
+Segment attribution and its limits are defined in
+[Loss decomposition](docs/LOSS_DECOMPOSITION.md).
 
-- Splits are frozen by complete acquisition cycles or chronological shots;
-  geometry, background, and emission fitting use training data only,
-  validation selects structure, and final test shots are scored once.
-- Lifetime intervals and primary repeated-imaging intervals use 1,000
-  complete-shot cluster-bootstrap replicates. A contiguous-block bootstrap
-  preserves slow shot-order drift as a separate sensitivity.
-- Dark and bright hazards enter survival multiplicatively. Exposure runs keep
-  separate initial loading, and matched-prefix comparisons condition on equal
-  cumulative bright time while accounting for each 10 ms dark gap.
-- Public claims require held-out improvement, a predeclared materiality gate,
-  stable clustered uncertainty, and agreement across background, split, and
-  drift sensitivities. Full definitions are in
-  [Statistical methods](docs/STATISTICAL_METHODS.md).
+## Statistical contribution
+
+- **Latent-class inference without external labels:** report apparent
+  occupancy, model-implied separation, and explicit claim boundaries.
+- **Frozen train/validation/test model selection:** learn preprocessing and
+  candidates on training data, select structure on validation, and score the
+  final test shots once.
+- **Complete-shot and block-bootstrap uncertainty:** preserve clustered sites
+  and frames while separately testing sensitivity to acquisition-order drift.
+- **Materiality-aware model selection:** require an added term to improve
+  held-out prediction enough to matter, not merely become detectable in a
+  large correlated table.
+
+The complete estimand, likelihood, resampling, and model-gate definitions are
+in [Statistical methods](docs/STATISTICAL_METHODS.md).
 
 ## Reproduce
 
-After configuring the local raw-data roots, the optimized analysis is
-reproduced with one command from the repository root:
+After configuring the local raw-data roots, run the optimized workflow from
+the repository root:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\reproduce_optimized_lifetimes.py
 ```
 
-The command audits and exports all five datasets, refits training-only geometry
-and backgrounds, performs the frozen analysis with 1,000 bootstrap replicates,
-and writes the reviewed result. It refuses publication from dirty scientific
-code. Detailed prerequisites, output contracts, and the preserved V0/V1
-commands are in [Reproduction](docs/REPRODUCE.md).
+The command audits the five acquisitions, builds the standardized local
+products, validates frozen preprocessing, and regenerates the reviewed
+scientific result. Publication-only figures can then be regenerated without
+refitting the scientific models:
 
-The reviewed machine-readable result is
-[`reports/optimized_lifetime_results_20260731.json`](reports/optimized_lifetime_results_20260731.json).
-The publication manifest binds that result to the analysis commit, inputs,
-documents, environment, and exact same-environment asset hashes.
+```powershell
+.\.venv\Scripts\python.exe scripts\generate_optimized_assets.py
+```
 
-## Documentation
-
-- [Optimized result interpretation](docs/OPTIMIZED_LIFETIME_RESULTS.md) — full
-  estimates, held-out scores, intervals, and sensitivity boundaries.
-- [Statistical methods](docs/STATISTICAL_METHODS.md) — estimands, splits,
-  likelihoods, model gates, and clustered uncertainty.
-- [Loss decomposition](docs/LOSS_DECOMPOSITION.md) — segment probabilities,
-  matched-prefix identification, and location limits.
-- [Optimized data audit](docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md) —
-  source completeness, exact timing, geometry, background, and data contract.
-- [2026-07-28 pre-optimization benchmark](docs/LOSS_SWEEP_INTERPRETATION.md) —
-  retained for reproducibility and historical comparison, not mixed into the
-  optimized estimates above.
+Detailed prerequisites and the preserved 2026-07-28 benchmark workflow are in
+[Reproduction](docs/REPRODUCE.md). The reviewed values and full robustness
+tables are in [Optimized results](docs/OPTIMIZED_LIFETIME_RESULTS.md). The
+[2026-07-28 analysis](docs/LOSS_SWEEP_INTERPRETATION.md) remains a reproducible
+pre-optimization benchmark and is not mixed into the results above.
 
 ## Limitations
 
-- Occupancy is latent: there are no external per-site labels, so model overlap
-  is not empirical fidelity and apparent loss is model-dependent.
-- Each exposure has one acquisition run; exposure and run remain partly
-  confounded, and fixed within-cycle ordering cannot eliminate aligned drift.
-- Optical extinction and exact atom-loss times were not measured. Loss
-  location is therefore probabilistic segment attribution, not event timing.
-- The 0090 bright-lifetime run differs in pre-heat commands, so transferring
-  its hazard to repeated imaging is tested as a sensitivity rather than assumed
-  universal.
+- Occupancy is latent; model-implied overlap is not empirical fidelity.
+- Each exposure corresponds to one acquisition run, so exposure and run are
+  partly confounded.
+- Fixed within-cycle ordering cannot eliminate a drift aligned perfectly with
+  experimental condition.
+- Integrated frames do not reveal an exact loss time; bright/dark attribution
+  is probabilistic and rate-based.
+- Transferring the bright-lifetime hazard into repeated imaging remains a
+  tested sensitivity rather than a universal physical assumption.
 
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT licensed. See [LICENSE](LICENSE).

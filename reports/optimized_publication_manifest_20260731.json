@@ -80,9 +80,17 @@
       "bytes": 155766,
       "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
     },
+    "assets/readme/optimized_occupancy_inference.gif": {
+      "bytes": 2723786,
+      "sha256": "40a99a1d7fdf1f0a89ff06b97f18a65081bc1aa73a73842965390e0d2f960157"
+    },
     "assets/readme/optimized_occupancy_inference.png": {
-      "bytes": 169079,
-      "sha256": "3ec67c74e0093033700c0b194cfedacc6c9ac5ca38b1b98dc3815b6a2bce894e"
+      "bytes": 142672,
+      "sha256": "aa8deacbc201b716ae1a8e749655a112acee05fa234f1308271c8cb8ac099131"
+    },
+    "assets/readme/optimized_readout_tradeoff.png": {
+      "bytes": 147316,
+      "sha256": "ed2e5c16e14823dbee79af69710d2961e4ce5e6f64c46318d82a622b1d6c9c96"
     },
     "assets/readme/optimized_sequence_design.png": {
       "bytes": 58097,
@@ -91,8 +99,8 @@
   },
   "public_documents": {
     "README.md": {
-      "bytes": 10644,
-      "sha256": "046c0e09b47aeda55c20b8ded245d47c267695513a88218e3464937ae8a26bef"
+      "bytes": 8528,
+      "sha256": "938ff4c0d15695be373b788f66f0a6bc6d198369f20533d18e7f686b475e5421"
     },
     "docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md": {
       "bytes": 10225,
@@ -107,16 +115,16 @@
       "sha256": "5359a405bae1239546b641f9750632a5ae052e8815170521bfafcd0485a44253"
     },
     "docs/OPTIMIZED_LIFETIME_RESULTS.md": {
-      "bytes": 8818,
-      "sha256": "30134b46cbddae1160e9a8d6f0de457ae8733e2cafefe0fb296aeb4242480fa9"
+      "bytes": 8986,
+      "sha256": "08c995cb021d9d16aff3eb1428b2f9a1e4fc3eac28d1df6e1df03c390037d863"
     },
     "docs/REPRODUCE.md": {
       "bytes": 4911,
       "sha256": "d2ecea151efaf9659d5de198833f6edd9d6b7916aa233b99d6b1b156fd7f0708"
     },
     "docs/STATISTICAL_METHODS.md": {
-      "bytes": 6231,
-      "sha256": "1b69c849b310abd6e4f8ffac269de96cde3f7df72fe34102ed90f93cda6272e2"
+      "bytes": 6596,
+      "sha256": "fad7167125da911cbe639ac5e1db877ee268be10a72ce1d8359e369cdbf0ed8c"
     },
     "reports/optimized_readme_metrics_20260731.md": {
       "bytes": 746,

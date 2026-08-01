@@ -123,6 +123,10 @@ The clustered interval for the M1 improvement is positive,
 materiality threshold. Statistical detectability at this row count is not
 enough to make the extra term scientifically material.
 
+The retained
+[matched-total-exposure figure](../assets/readme/exposure_segmentation_result.png)
+shows the complete-shot intervals for the fixed-bright-time contrasts.
+
 M1 is retained only as sensitivity. It estimates `q = 0.994281`, with
 complete-shot interval 0.993009–0.995622 and block-bootstrap interval
 0.992882–0.995674. Early and late shot-order estimates are 0.994558 and

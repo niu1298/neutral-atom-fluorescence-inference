@@ -1,5 +1,13 @@
 {
   "analysis_code_commit": "aa97a7e318cf184c0fcd004e895c061ba5eb1aca",
+  "animation": {
+    "bytes": 2723786,
+    "duration_s": 11.5,
+    "fps": 10,
+    "height_px": 600,
+    "n_encoded_frames": 43,
+    "width_px": 1000
+  },
   "assets": {
     "exposure_segmentation_result.png": {
       "bytes": 70188,
@@ -9,9 +17,17 @@
       "bytes": 155766,
       "sha256": "46e9fdc84a3e8c6a5d36f9584150385ed09434258d7c0d11c24c30512b391233"
     },
+    "optimized_occupancy_inference.gif": {
+      "bytes": 2723786,
+      "sha256": "40a99a1d7fdf1f0a89ff06b97f18a65081bc1aa73a73842965390e0d2f960157"
+    },
     "optimized_occupancy_inference.png": {
-      "bytes": 169079,
-      "sha256": "3ec67c74e0093033700c0b194cfedacc6c9ac5ca38b1b98dc3815b6a2bce894e"
+      "bytes": 142672,
+      "sha256": "aa8deacbc201b716ae1a8e749655a112acee05fa234f1308271c8cb8ac099131"
+    },
+    "optimized_readout_tradeoff.png": {
+      "bytes": 147316,
+      "sha256": "ed2e5c16e14823dbee79af69710d2961e4ce5e6f64c46318d82a622b1d6c9c96"
     },
     "optimized_sequence_design.png": {
       "bytes": 58097,
@@ -19,5 +35,14 @@
     }
   },
   "generated_by": "scripts/generate_optimized_assets.py",
+  "representative_selection": {
+    "dataset_id": "imaging_5frame_100ms_20260731_0114",
+    "shot_id": 85,
+    "shot_rule": "held-out shot whose median background-corrected count across all sites and five frames is closest to the held-out shot median",
+    "site_id": 11,
+    "site_rule": "site in that shot whose median background-corrected count across five frames is closest to the shot's site median",
+    "split": "test",
+    "uses_frozen_geometry_background_and_emissions": true
+  },
   "result_sha256": "3a56b8f47f844d5962c7b5a8a9c4371676d4457778379e6cbfb12087120fad15"
 }

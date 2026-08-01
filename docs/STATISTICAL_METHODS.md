@@ -83,6 +83,12 @@ The M1 improvement is statistically positive but below the materiality
 threshold, so M0 remains primary. Conditional M1 pulse factors are sensitivity
 parameters, not selected estimates.
 
+The predeclared threshold is `0.0001` validation NLL per row, equivalent to
+3.0 aggregate NLL units across the 30,000-row validation comparison. Requiring
+that aggregate improvement prevents a very large, internally correlated
+site-frame table from promoting a negligible extra model term merely because
+the same tiny predictive difference is repeated many times.
+
 ## Matched-prefix contrasts
 
 Segmentation is assessed at equal total bright exposure:

@@ -1,4 +1,4 @@
-"""Landing-page scope and scientific-claim guards."""
+"""Presentation-story and scientific-claim guards for the public landing page."""
 from __future__ import annotations
 
 import re
@@ -11,87 +11,116 @@ README = ROOT / "README.md"
 
 def _displayed_assets(text: str) -> list[str]:
     patterns = (
+        r'<source[^>]+srcset=["\'](assets/readme/[^"\']+)["\']',
         r"!\[[^\]]*\]\((assets/readme/[^)]+)\)",
-        r'<img[^>]+src=["\'](assets/readme/[^"\']+)["\']',
     )
     matches: list[tuple[int, str]] = []
     for pattern in patterns:
         matches.extend(
-            (match.start(), match.group(1))
-            for match in re.finditer(pattern, text)
+            (match.start(), match.group(1)) for match in re.finditer(pattern, text)
         )
     return [value for _offset, value in sorted(matches)]
 
 
-def test_readme_is_compact_and_result_first():
+def test_readme_has_requested_compact_section_order():
     text = README.read_text(encoding="utf-8")
     lines = text.splitlines()
-    assert 200 <= len(lines) <= 280
+    assert 180 <= len(lines) <= 240
     headings = [
         "## From images to apparent occupancy",
+        "## What was measured",
         "## Main results",
-        "## Experiments and timing",
-        "## Repeated imaging and loss attribution",
-        "## Statistical design",
+        "## Readout quality versus survival cost",
+        "## Repeated imaging and pulse segmentation",
+        "## Statistical contribution",
         "## Reproduce",
-        "## Documentation",
         "## Limitations",
-        "## License",
     ]
     assert [line for line in lines if line.startswith("## ")] == headings
-    assert lines.index(headings[0]) < 15
+    assert lines.index(headings[0]) < 20
     assert lines.index(headings[1]) < lines.index(headings[2])
-    assert (
-        "From raw fluorescence images to held-out latent-occupancy inference, "
-        "operational lifetimes, and repeated-imaging loss attribution."
-    ) in text
-    assert "35.73 s" in text
-    assert "20.30 s" in text
-    assert "continuous-only" in text
-    assert "pre-optimization benchmark" in text
+    assert lines.index(headings[3]) < lines.index(headings[4])
+    opening = text.split(headings[1], 1)[0]
+    assert "camera frame" in opening
+    assert "apparent occupancy" in opening
+    assert "held-out emission model" in opening
+    assert "not empirical fidelity" in opening
 
 
-def test_readme_displays_exactly_four_primary_assets():
+def test_readme_displays_exactly_four_nonduplicated_primary_assets():
     text = README.read_text(encoding="utf-8")
     displayed = _displayed_assets(text)
     assert displayed == [
-        "assets/readme/optimized_occupancy_inference.png",
-        "assets/readme/optimized_lifetime_overview.png",
+        "assets/readme/optimized_occupancy_inference.gif",
         "assets/readme/optimized_sequence_design.png",
-        "assets/readme/exposure_segmentation_result.png",
+        "assets/readme/optimized_lifetime_overview.png",
+        "assets/readme/optimized_readout_tradeoff.png",
     ]
+    assert len(displayed) == len(set(displayed)) == 4
     for relative in displayed:
         assert (ROOT / relative).is_file()
-    assert "fluorescence_inference_overview.gif" not in displayed
-    assert "loss_sweep_overview.png" not in displayed
+    assert "assets/readme/optimized_occupancy_inference.png" in text
+    assert "assets/readme/exposure_segmentation_result.png" in text
+    assert "exposure_segmentation_result.png" not in {
+        Path(value).name for value in displayed
+    }
 
 
-def test_readme_claim_boundaries_are_explicit():
+def test_main_table_has_only_requested_results():
     text = README.read_text(encoding="utf-8")
-    assert "model-implied component overlap" in text
-    assert "empirical readout\nfidelity" in text
-    assert "posterior transition as an observed loss timestamp" in text
-    assert "0% by structure" in text
-    assert "unselected sensitivity" in text
+    section = text.split("## Main results", 1)[1].split(
+        "## Readout quality versus survival cost", 1
+    )[0]
+    for phrase in (
+        "dark operational lifetime",
+        "bright operational lifetime",
+        "model-implied overlap",
+        "selected-model five-frame survival",
+        "pulse segmentation",
+    ):
+        assert phrase in section
+    assert "Mean NLL" not in section
+    assert "Posterior entropy" not in section
+
+
+def test_landing_page_moves_detailed_statistics_to_docs():
+    text = README.read_text(encoding="utf-8")
+    forbidden = (
+        "Mean NLL",
+        "mean NLL",
+        "posterior entropy",
+        "q₀ =",
+        "2 µs",
+        "robust spatial",
+        "fixed template plus",
+        "M2 exposure-specific",
+        "M3 diagnostic",
+        "Difference (95% interval)",
+    )
+    for phrase in forbidden:
+        assert phrase not in text
     assert "public pulse-loss claim gate remains closed" in text
-    assert "rate-based prior attributions" in text
-    assert "count-conditioned posterior\nlocation" in text
+    assert "zero by selected-model\nstructure" in text
+    assert "not a precisely measured physical zero" in text
 
 
-def test_readme_methods_are_four_compact_bullets():
+def test_statistical_contribution_is_exactly_four_bullets():
     text = README.read_text(encoding="utf-8")
-    section = text.split("## Statistical design", 1)[1].split(
+    section = text.split("## Statistical contribution", 1)[1].split(
         "## Reproduce", 1
     )[0]
     bullets = [line for line in section.splitlines() if line.startswith("- ")]
     assert len(bullets) == 4
-    assert "training data only" in section
-    assert "1,000" in section
-    assert "block bootstrap" in section
-    assert "matched-prefix" in section
+    for phrase in (
+        "Latent-class inference without external labels",
+        "Frozen train/validation/test model selection",
+        "Complete-shot and block-bootstrap uncertainty",
+        "Materiality-aware model selection",
+    ):
+        assert phrase in section
 
 
-def test_readme_links_detailed_claim_documents():
+def test_readme_links_all_detailed_claim_documents():
     text = README.read_text(encoding="utf-8")
     documents = (
         "docs/DATA_AUDIT_2026-07-31_OPTIMIZED_LIFETIMES.md",
@@ -109,7 +138,7 @@ def test_readme_links_detailed_claim_documents():
 def test_old_benchmark_values_are_not_mixed_into_headline():
     text = README.read_text(encoding="utf-8")
     main = text.split("## Main results", 1)[1].split(
-        "## Experiments and timing", 1
+        "## Readout quality versus survival cost", 1
     )[0]
     assert "22.29 s" not in main
     assert "1.64 s" not in main

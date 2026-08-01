@@ -16,10 +16,12 @@ DEFAULT_RESULT = ROOT / "reports" / "optimized_lifetime_results_20260731.json"
 DEFAULT_OUTPUT = ROOT / "reports" / "optimized_publication_manifest_20260731.json"
 PUBLIC_ASSETS = (
     "assets/readme/fluorescence_inference_overview.gif",
+    "assets/readme/optimized_occupancy_inference.gif",
     "assets/readme/optimized_occupancy_inference.png",
     "assets/readme/optimized_sequence_design.png",
     "assets/readme/optimized_lifetime_overview.png",
     "assets/readme/exposure_segmentation_result.png",
+    "assets/readme/optimized_readout_tradeoff.png",
 )
 PUBLIC_DOCUMENTS = (
     "README.md",

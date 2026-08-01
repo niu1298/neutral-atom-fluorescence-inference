@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -70,7 +72,10 @@ def _result() -> dict:
         })
     budgets = {}
     for label, bright in (("50ms", 0.012), ("100ms", 0.024), ("200ms", 0.048)):
-        budgets[label] = {"component_loss": {"bright_exposure": bright, "dark_gap": 0.0011, "residual_readout_associated": 0.0}}
+        budgets[label] = {
+            "component_loss": {"bright_exposure": bright, "dark_gap": 0.0011, "residual_readout_associated": 0.0},
+            "final_survival": 1.0 - bright - 0.0011,
+        }
     return {
         "bootstrap_replicates": 1000,
         "provenance": {"publishable_clean_provenance": True, "analysis_code_commit": "a" * 40},
@@ -88,14 +93,58 @@ def _hashes(directory: Path):
     return {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in assets.ASSET_NAMES}
 
 
+def _story() -> assets.OccupancyStoryData:
+    y, x = np.mgrid[:120, :140]
+    raw = 100 + 20 * np.sin(x / 13) + 15 * np.cos(y / 11)
+    sites = pd.DataFrame({
+        "site_id": [0, 1, 2, 3],
+        "site_x": [50.0, 70.0, 50.0, 70.0],
+        "site_y": [45.0, 45.0, 65.0, 65.0],
+        "site_row": [0, 0, 1, 1],
+        "site_col": [0, 1, 0, 1],
+    })
+    rows = pd.DataFrame({
+        "frame_id": range(5),
+        "site_x": [50.0] * 5,
+        "site_y": [45.0] * 5,
+        "roi_sum_raw": [3200, 3300, 3250, 3350, 3280],
+        "background_fixed_offset": [1800, 1810, 1790, 1805, 1795],
+        "background_corrected_count": [1400, 1490, 1460, 1545, 1485],
+    })
+    return assets.OccupancyStoryData(
+        raw_image=raw,
+        sites=sites,
+        representative_rows=rows,
+        heldout_raw_counts=np.linspace(1800, 6500, 500),
+        heldout_corrected_counts=np.r_[np.linspace(-100, 900, 250), np.linspace(2200, 5200, 250)],
+        posterior_by_frame=np.asarray([0.53, 0.525, 0.52, 0.515, 0.51]),
+        selected_shot_id=85,
+        selected_site_id=0,
+        shot_rule="held-out median shot rule",
+        site_rule="within-shot median site rule",
+    )
+
+
 def test_assets_are_deterministic_and_gated(tmp_path):
     result = tmp_path / "result.json"
     result.write_text(json.dumps(_result()), encoding="utf-8")
     first = tmp_path / "first"
     second = tmp_path / "second"
-    assets.generate_assets(result, first, metrics_path=tmp_path / "metrics.md")
-    assets.generate_assets(result, second)
+    assets.generate_assets(
+        result, first, metrics_path=tmp_path / "metrics.md", story_data=_story()
+    )
+    assets.generate_assets(result, second, story_data=_story())
     assert _hashes(first) == _hashes(second)
+    with Image.open(first / "optimized_occupancy_inference.gif") as animation:
+        assert animation.size == (1000, 600)
+        assert animation.n_frames >= 40
+        assert sum(
+            animation.seek(index) or animation.info["duration"]
+            for index in range(animation.n_frames)
+        ) / 1000 == pytest.approx(11.5)
+    metadata = json.loads((first / "optimized_asset_metadata.json").read_text())
+    assert metadata["representative_selection"]["uses_frozen_geometry_background_and_emissions"] is True
+    assert metadata["animation"]["bytes"] < 8_000_000
     metrics = (tmp_path / "metrics.md").read_text(encoding="utf-8")
     assert "model-implied" in metrics
     assert "no externally labelled occupancy truth" in metrics
@@ -104,4 +153,4 @@ def test_assets_are_deterministic_and_gated(tmp_path):
     payload["bootstrap_replicates"] = 100
     result.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(assets.AssetInputError, match="1000-bootstrap"):
-        assets.generate_assets(result, tmp_path / "rejected")
+        assets.generate_assets(result, tmp_path / "rejected", story_data=_story())
