@@ -8,12 +8,32 @@ import pandas as pd
 import pytest
 
 from fluorescence_inference.loss_sweep_analysis import (
+    _bright_model_band,
     _invert_positive_rate_interval,
     _selected_kappa_semantics,
     _training_site_coordinates,
     compare_datasets,
     dark_endpoint_sensitivity,
 )
+
+
+def test_bright_model_band_covers_the_configured_wait_range():
+    fit = SimpleNamespace(
+        pi_0=0.5,
+        pi_floor=0.0,
+        predict_time=lambda time: 0.5 * np.exp(-0.05 * np.asarray(time)),
+    )
+    bootstrap = SimpleNamespace(
+        draws=pd.DataFrame(
+            {
+                "pi_0": [0.48, 0.50, 0.52],
+                "pi_floor": [0.0, 0.0, 0.0],
+                "lambda_bright_effective": [0.04, 0.05, 0.06],
+            }
+        )
+    )
+    band = _bright_model_band(fit, bootstrap, max_time_s=8.1)
+    assert band["wait_s"].iloc[-1] == pytest.approx(8.1)
 
 
 def test_cross_dataset_estimates_use_point_fits_and_never_assert_explanation():

@@ -758,8 +758,10 @@ def fit_dark_analysis(
     }
 
 
-def _bright_model_band(fit, bootstrap, *, n_grid: int = 80) -> pd.DataFrame:
-    t = np.linspace(0.0, 2.0, n_grid)
+def _bright_model_band(
+    fit, bootstrap, *, max_time_s: float = 2.0, n_grid: int = 80
+) -> pd.DataFrame:
+    t = np.linspace(0.0, float(max_time_s), n_grid)
     draws = bootstrap.draws
     pi0 = draws["pi_0"].to_numpy(float)
     floor = draws["pi_floor"].to_numpy(float)
@@ -778,8 +780,10 @@ def _bright_model_band(fit, bootstrap, *, n_grid: int = 80) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _control_model_band(fit, bootstrap, *, n_grid: int = 80) -> pd.DataFrame:
-    t = np.linspace(0.0, 2.0, n_grid)
+def _control_model_band(
+    fit, bootstrap, *, max_time_s: float = 2.0, n_grid: int = 80
+) -> pd.DataFrame:
+    t = np.linspace(0.0, float(max_time_s), n_grid)
     draws = bootstrap.draws
     q0 = draws["post_wait_retention_q_0"].to_numpy(float)
     kappa = draws["post_wait_retention_kappa"].to_numpy(float)
@@ -1025,7 +1029,11 @@ def fit_bright_analysis(
         "pi_0": float(final_fit.pi_0),
         "pi_floor": float(final_fit.pi_floor),
         "clustered_apparent_occupancy_curve": occupancy_curve,
-        "model_band": _bright_model_band(final_fit, bootstrap),
+        "model_band": _bright_model_band(
+            final_fit,
+            bootstrap,
+            max_time_s=float(first["sweep_value_s"].max()),
+        ),
         "cycle_drift_sensitivity": _shot_cycle_residual_slope(first, final_fit),
         "post_wait_control": {
             "selected_model": control_selection.selected_name,
@@ -1067,7 +1075,11 @@ def fit_bright_analysis(
                 ),
             },
             "clustered_curve": control_curve,
-            "model_band": _control_model_band(control_fit, control_bootstrap),
+            "model_band": _control_model_band(
+                control_fit,
+                control_bootstrap,
+                max_time_s=float(first["sweep_value_s"].max()),
+            ),
             "interpretation": (
                 "Validation selected a flat post-wait retention model. Kappa "
                 "is fixed to zero by that selected structure; the data do not "
